@@ -22,7 +22,7 @@ def _load(name):
 def _step_output(source):
     truth = to_grid(source)
     s = Stepper(np.zeros_like(truth))            # blank grid, like generation
-    s.fill(lambda s: int(truth[s.x, s.y]))       # feed the true op at each new cell
+    s.fill(lambda s: int(truth[s.y, s.x]))       # feed the true op at each new cell
     return "".join(s.output)
 
 

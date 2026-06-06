@@ -8,18 +8,18 @@ print("[cnn.grid] grid is hardcoded 8x32 -- tune this")
 
 
 def to_grid(source: str) -> np.ndarray:
-    """Map a .bf source to a (W, H) array of vocab ids."""
-    grid = np.zeros((W, H), dtype=np.int64)
+    """Map a .bf source to an (H, W) array of vocab ids."""
+    grid = np.zeros((H, W), dtype=np.int64)
     for y, line in enumerate(source.split("\n")):
         for x, ch in enumerate(line):
-            grid[x, y] = CHAR_TO_ID[ch]
+            grid[y, x] = CHAR_TO_ID[ch]
     return grid
 
 
 def from_grid(grid: np.ndarray) -> str:
-    """Map a (W, H) id array back to a .bf source string."""
+    """Map an (H, W) id array back to a .bf source string."""
     lines = []
-    for y in range(grid.shape[1]):
-        line = "".join(ID_TO_CHAR[int(grid[x, y])] for x in range(grid.shape[0]))
+    for y in range(grid.shape[0]):
+        line = "".join(ID_TO_CHAR[int(grid[y, x])] for x in range(grid.shape[1]))
         lines.append(line.rstrip())
     return "\n".join(lines).rstrip("\n")

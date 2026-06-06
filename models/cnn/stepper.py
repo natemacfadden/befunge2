@@ -23,7 +23,7 @@ class Stepper:
     """Walks the IP, pausing whenever it lands on a blank cell to be filled."""
 
     def __init__(self, grid):
-        self.grid = grid               # (W, H) ids, indexed grid[x, y]
+        self.grid = grid               # (H, W) ids, indexed grid[y, x] (numpy row-major)
         self.filled = np.zeros_like(grid, dtype=bool)
         self.x, self.y = 0, 0          # start top-left, moving right
         self.dx, self.dy = 1, 0
@@ -35,7 +35,7 @@ class Stepper:
 
     def _advance(self):
         """Move the IP one cell along its direction, wrapping the torus."""
-        W, H = self.grid.shape
+        H, W = self.grid.shape
         self.x = (self.x + self.dx) % W
         self.y = (self.y + self.dy) % H
 
@@ -114,12 +114,12 @@ class Stepper:
 
     def place(self, op):
         """Fill the current blank cell with op id and mark it filled."""
-        self.grid[self.x, self.y] = op
-        self.filled[self.x, self.y] = True
+        self.grid[self.y, self.x] = op
+        self.filled[self.y, self.x] = True
 
     def step(self):
         """Execute the current (filled) cell, then advance unless halted."""
-        op = int(self.grid[self.x, self.y])
+        op = int(self.grid[self.y, self.x])
         # string mode disabled: vocab has no string chars (letters)
         # ch = ID_TO_CHAR[op]
         # if self.string_mode and ch != '"':
@@ -134,7 +134,7 @@ class Stepper:
         """Walk filled cells until the IP lands on a new cell, halts, or hits the cap.
         Returns 'newcell', 'halt', or 'limit'."""
         for _ in range(max_steps):
-            if not self.filled[self.x, self.y]:
+            if not self.filled[self.y, self.x]:
                 return "newcell"
             self.step()
             if self.halted:
