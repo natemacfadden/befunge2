@@ -2,10 +2,21 @@
 
 Step-by-step Python mirror of befunge.py's run-to-completion njit core. Same
 op semantics, but pauses on blank cells so generation can fill them live.
-TODO: cross-test against befunge.py for identical output.
 """
 
 import numpy as np
+
+from models.cnn.vocab import ID_TO_CHAR
+
+
+def _cdivmod(b, a):
+    """C-style truncated division and remainder; (0, 0) if a == 0."""
+    if a == 0:
+        return 0, 0
+    q = abs(b) // abs(a)
+    if (b < 0) != (a < 0):
+        q = -q
+    return q, b - a * q
 
 
 class Stepper:
@@ -19,11 +30,121 @@ class Stepper:
         self.stack = []
         self.regs = {}
         self.output = []
+        # self.string_mode = False  # disabled: vocab has no string chars (letters)
+        self.halted = False
+
+    def _advance(self):
+        """Move the IP one cell along its direction, wrapping the torus."""
+        W, H = self.grid.shape
+        self.x = (self.x + self.dx) % W
+        self.y = (self.y + self.dy) % H
+
+    def _pop(self):
+        """Pop the stack, returning 0 if empty (matches befunge.py)."""
+        return self.stack.pop() if self.stack else 0
+
+    def _exec(self, op):
+        """Apply one op's effect on the state. op is a vocab id."""
+        ch = ID_TO_CHAR[op]
+        if ch in "0123456789": # push the digit's value
+            self.stack.append(int(ch))
+        elif ch == ">":
+            self.dx, self.dy = 1, 0
+        elif ch == "<":
+            self.dx, self.dy = -1, 0
+        elif ch == "^":
+            self.dx, self.dy = 0, -1
+        elif ch == "v":
+            self.dx, self.dy = 0, 1
+        elif ch == "_": # pop, go right if 0 else left
+            self.dx, self.dy = (1, 0) if self._pop() == 0 else (-1, 0)
+        elif ch == "|": # pop, go down if 0 else up
+            self.dx, self.dy = (0, 1) if self._pop() == 0 else (0, -1)
+        elif ch == "+": # pop a, pop b, push b + a
+            a, b = self._pop(), self._pop()
+            self.stack.append(b + a)
+        elif ch == "*": # pop a, pop b, push b * a
+            a, b = self._pop(), self._pop()
+            self.stack.append(b * a)
+        elif ch == "-": # pop a, pop b, push b - a
+            a, b = self._pop(), self._pop()
+            self.stack.append(b - a)
+        elif ch == "/": # pop a, pop b, push trunc(b / a) (0 if a == 0)
+            a, b = self._pop(), self._pop()
+            self.stack.append(_cdivmod(b, a)[0])
+        elif ch == "%": # pop a, pop b, push C-remainder of b / a (0 if a == 0)
+            a, b = self._pop(), self._pop()
+            self.stack.append(_cdivmod(b, a)[1])
+        elif ch == ":": # duplicate top (0 if empty)
+            v = self._pop()
+            self.stack.append(v)
+            self.stack.append(v)
+        elif ch == "\\": # swap top two
+            a, b = self._pop(), self._pop()
+            self.stack.append(a)
+            self.stack.append(b)
+        elif ch == "$": # pop and discard
+            self._pop()
+        elif ch == "!": # logical not: pop v, push 1 if v == 0 else 0
+            self.stack.append(1 if self._pop() == 0 else 0)
+        elif ch == "`": # greater-than: pop a, pop b, push 1 if b > a else 0
+            a, b = self._pop(), self._pop()
+            self.stack.append(1 if b > a else 0)
+        elif ch == ".": # pop v, output str(v) + " "
+            self.output.append(str(self._pop()) + " ")
+        elif ch == ",": # pop v, output chr(v % 256)
+            self.output.append(chr(self._pop() % 256))
+        elif ch == "g": # get: pop i, push regs[i] (0 if absent)
+            self.stack.append(self.regs.get(self._pop(), 0))
+        elif ch == "p": # put: pop i, pop v, regs[i] = v
+            i, v = self._pop(), self._pop()
+            self.regs[i] = v
+        elif ch == "&": # read int from stdin -> push 0 (this variant)
+            self.stack.append(0)
+        elif ch == "~": # read char from stdin -> push 0 (this variant)
+            self.stack.append(0)
+        # elif ch == '"': # toggle string mode (disabled: vocab has no string chars)
+        #     self.string_mode = not self.string_mode
+        elif ch == "?": # random direction -- nondeterministic
+            raise NotImplementedError("'?' is nondeterministic; not supported")
+        elif ch == "#": # bridge: skip the next cell
+            self._advance()
+        elif ch == "@": # halt
+            self.halted = True
+
+    def place(self, op):
+        """Fill the current blank cell with op id and mark it filled."""
+        self.grid[self.x, self.y] = op
+        self.filled[self.x, self.y] = True
 
     def step(self):
-        """Advance the IP one cell, executing ops along the way. TODO."""
-        ...
+        """Execute the current (filled) cell, then advance unless halted."""
+        op = int(self.grid[self.x, self.y])
+        # string mode disabled: vocab has no string chars (letters)
+        # ch = ID_TO_CHAR[op]
+        # if self.string_mode and ch != '"':
+        #     self.stack.append(ord(ch))   # string mode: push char, don't execute
+        # else:
+        #     self._exec(op)
+        self._exec(op)
+        if not self.halted:
+            self._advance()
 
-    def run(self):
-        """Step until landing on a blank cell; return there to ask for an op. TODO."""
-        ...
+    def run(self, max_steps=100000):
+        """Walk filled cells until the IP lands on a new cell, halts, or hits the cap.
+        Returns 'newcell', 'halt', or 'limit'."""
+        for _ in range(max_steps):
+            if not self.filled[self.x, self.y]:
+                return "newcell"
+            self.step()
+            if self.halted:
+                return "halt"
+        return "limit"
+
+    def fill(self, choose_op, max_steps=100000):
+        """Run to halt/limit, calling choose_op(self) at each new cell to place an op."""
+        while True:
+            status = self.run(max_steps)
+            if status != "newcell":
+                return status
+            self.place(choose_op(self))
