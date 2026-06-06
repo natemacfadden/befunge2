@@ -23,14 +23,14 @@ class Stepper:
     """Walks the IP, pausing whenever it lands on a blank cell to be filled."""
 
     def __init__(self, grid):
-        self.grid = grid               # (H, W) ids, indexed grid[y, x] (numpy row-major)
+        self.grid = grid               # (H, W) ids, indexed grid[y, x]
         self.filled = np.zeros_like(grid, dtype=bool)
         self.x, self.y = 0, 0          # start top-left, moving right
         self.dx, self.dy = 1, 0
         self.stack = []
         self.regs = {}
         self.output = []
-        # self.string_mode = False  # disabled: vocab has no string chars (letters)
+        # self.string_mode = False  # disabled: no string chars in vocab
         self.halted = False
 
     def _advance(self):
@@ -103,7 +103,7 @@ class Stepper:
             self.stack.append(0)
         elif ch == "~": # read char from stdin -> push 0 (this variant)
             self.stack.append(0)
-        # elif ch == '"': # toggle string mode (disabled: vocab has no string chars)
+        # elif ch == '"': # toggle string mode (disabled: not in vocab)
         #     self.string_mode = not self.string_mode
         elif ch == "?": # random direction -- nondeterministic
             raise NotImplementedError("'?' is nondeterministic; not supported")
@@ -123,7 +123,7 @@ class Stepper:
         # string mode disabled: vocab has no string chars (letters)
         # ch = ID_TO_CHAR[op]
         # if self.string_mode and ch != '"':
-        #     self.stack.append(ord(ch))   # string mode: push char, don't execute
+        #     self.stack.append(ord(ch))   # string mode: push char
         # else:
         #     self._exec(op)
         self._exec(op)
@@ -131,8 +131,8 @@ class Stepper:
             self._advance()
 
     def run(self, max_steps=100000):
-        """Walk filled cells until the IP lands on a new cell, halts, or hits the cap.
-        Returns 'newcell', 'halt', or 'limit'."""
+        """Walk filled cells until the IP lands on a new cell, halts,
+        or hits the cap. Returns 'newcell', 'halt', or 'limit'."""
         for _ in range(max_steps):
             if not self.filled[self.y, self.x]:
                 return "newcell"
@@ -142,7 +142,8 @@ class Stepper:
         return "limit"
 
     def fill(self, choose_op, max_steps=100000):
-        """Run to halt/limit, calling choose_op(self) at each new cell to place an op."""
+        """Run to halt/limit, calling choose_op(self) at each new cell
+        to place an op."""
         while True:
             status = self.run(max_steps)
             if status != "newcell":

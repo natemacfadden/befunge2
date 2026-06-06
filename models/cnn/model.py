@@ -13,7 +13,7 @@ class CNN(nn.Module):
         super().__init__()
         self.op_embed = nn.Embedding(len(VOCAB), EMBED_DIM)
 
-    def encode_input(self, grid, filled, ip, heading):
+    def encode_worldstate(self, grid, filled, ip, heading):
         """
         Build the model input (concatenated):
             1) embedding of placed characters,
@@ -47,3 +47,43 @@ class CNN(nn.Module):
 
         # return
         return torch.cat([emb, filled_flag, marker], dim=1)
+
+    def encode_observations(self, seq):
+        """
+        Encode the target sequence into per-position features for
+        cross-attention:
+            1) tokenize each int into decimal digit tokens, separated
+               between terms,
+            2) embed tokens,
+            3) contextualize into per-position features.
+        Returns shape (B, L, D), where
+            B = batch size,
+            L = number of tokens after tokenization (digits + separators),
+            D = feature width per token.
+        """
+        # tokenize
+        ...
+
+        # embed
+        ...
+
+        # contextualize
+        ...
+
+    def forward(self, worldstate_features, observation_features, ip):
+        """
+        Predict the op at the IP cell:
+            1) run the conv layers, conditioning on the observations,
+            2) read the op logits at the IP cell.
+        worldstate_features and observation_features are precomputed by
+        encode_worldstate / encode_observations.
+        ip is (B, 2) of (x, y), used to index which cell's logits to return.
+        Returns shape (B, V), where
+            B = batch size,
+            V = vocab size (the op distribution at the IP cell).
+        """
+        # conv layers (conditioned on observation_features)
+        ...
+
+        # read logits at the IP cell
+        ...

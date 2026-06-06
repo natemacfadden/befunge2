@@ -1,6 +1,7 @@
 """Turn a befunge program into a fixed grid of vocab ids and back."""
 
 import numpy as np
+
 from models.cnn.vocab import CHAR_TO_ID, ID_TO_CHAR
 
 H, W = 8, 32
@@ -20,6 +21,8 @@ def from_grid(grid: np.ndarray) -> str:
     """Map an (H, W) id array back to a .bf source string."""
     lines = []
     for y in range(grid.shape[0]):
-        line = "".join(ID_TO_CHAR[int(grid[y, x])] for x in range(grid.shape[1]))
+        line = "".join(
+            ID_TO_CHAR[int(grid[y, x])] for x in range(grid.shape[1])
+        )
         lines.append(line.rstrip())
     return "\n".join(lines).rstrip("\n")
