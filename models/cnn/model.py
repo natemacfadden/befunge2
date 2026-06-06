@@ -14,8 +14,21 @@ class CNN(nn.Module):
         self.op_embed = nn.Embedding(len(VOCAB), EMBED_DIM)
 
     def encode_input(self, grid, filled, ip, heading):
-        """Build the model input: op-embedding + filled flag + IP marker (4-way heading), as (B, EMBED_DIM + 5, H, W).
-        ip is (B, 2) of (x, y); heading is (B,) in {0:^, 1:>, 2:v, 3:<}."""
+        """
+        Build the model input (concatenated):
+            1) embedding of placed characters,
+            2) indicator variable of what cells have been placed,
+            3) IP placement/direction (4-way heading).
+        Shape is (B, EMBED_DIM + 1(indicator)+4(IP pos/dir), H, W).
+
+        IP position effectivelygoes like
+        [up,right,down,left] = torch.zeros(B, 4, H, W, device=grid.device)
+        if IP going up:
+            up[y,x] = 1
+        elif IP going right:
+            right[y,x] = 1
+        elif ...
+        """
         B, H, W = grid.shape
         
         # data embedding
@@ -26,10 +39,11 @@ class CNN(nn.Module):
         filled_flag = filled.unsqueeze(1).float() # (B, 1, H, W)
 
         # positional/directional heading
-        # (heading is ^, >, v, or <; stack 4x arrays and place a single 1 in one of them)
-        # (the one for IP's direction of travel, in the location of the IP)
+        # (heading is ^, >, v, or <; stack 4x arrays and place a single 1 in one
+        #  of them)
+        # (The one for IP's direction of travel, in the location of the IP)
         marker = torch.zeros(B, 4, H, W, device=grid.device)
         marker[torch.arange(B), heading, ip[:, 1], ip[:, 0]] = 1.0
 
         # return
-        return torch.cat([emb, filled_flag, marker], dim=1)    # (B, EMBED_DIM + 5, H, W)
+        return torch.cat([emb, filled_flag, marker], dim=1)
