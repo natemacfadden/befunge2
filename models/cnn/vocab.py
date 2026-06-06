@@ -1,4 +1,6 @@
-"""The character vocabulary the CNN predicts per grid cell."""
+"""
+The character vocabulary the CNN predicts per grid cell.
+"""
 
 # index 0 is blank; the rest are the full befunge instruction set
 VOCAB = " 0123456789+*-/%!`><^v?_|\":\\$.,#gp&~@"

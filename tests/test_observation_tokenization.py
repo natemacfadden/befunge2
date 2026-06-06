@@ -1,4 +1,6 @@
-"""Roundtrip tests for observation tokenization."""
+"""
+Roundtrip tests for observation tokenization.
+"""
 
 from models.cnn.observation_tokenization import obs_from_tokens, obs_to_tokens
 

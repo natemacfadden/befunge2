@@ -1,4 +1,6 @@
-"""Turn a befunge program into a fixed grid of vocab ids and back."""
+"""
+Turn a befunge program into a fixed grid of vocab ids and back.
+"""
 
 import numpy as np
 
@@ -9,7 +11,9 @@ print("[cnn.grid] grid is hardcoded 8x32 -- tune this")
 
 
 def to_grid(source: str) -> np.ndarray:
-    """Map a .bf source to an (H, W) array of vocab ids."""
+    """
+    Map a .bf source to an (H, W) array of vocab ids.
+    """
     grid = np.zeros((H, W), dtype=np.int64)
     for y, line in enumerate(source.split("\n")):
         for x, ch in enumerate(line):
@@ -18,7 +22,9 @@ def to_grid(source: str) -> np.ndarray:
 
 
 def from_grid(grid: np.ndarray) -> str:
-    """Map an (H, W) id array back to a .bf source string."""
+    """
+    Map an (H, W) id array back to a .bf source string.
+    """
     lines = []
     for y in range(grid.shape[0]):
         line = "".join(

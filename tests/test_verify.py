@@ -1,4 +1,6 @@
-"""Smoke tests for the runner dispatch and the num_leading scorer."""
+"""
+Smoke tests for the runner dispatch and the num_leading scorer.
+"""
 
 from bench import verify
 

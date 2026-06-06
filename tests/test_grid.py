@@ -1,4 +1,6 @@
-"""Roundtrip tests for the cnn grid encoding."""
+"""
+Roundtrip tests for the cnn grid encoding.
+"""
 
 from models.cnn import grid
 

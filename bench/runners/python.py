@@ -1,4 +1,6 @@
-"""Run a Python program in a subprocess and read the integers it prints."""
+"""
+Run a Python program in a subprocess and read the integers it prints.
+"""
 
 import os
 import re

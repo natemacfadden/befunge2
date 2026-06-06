@@ -10,7 +10,14 @@ from models.cnn.vocab import ID_TO_CHAR
 
 
 def _cdivmod(b, a):
-    """C-style truncated division and remainder; (0, 0) if a == 0."""
+    """
+    Integer division and remainder truncating toward zero, with (0, 0) when
+    a == 0.
+
+    Befunge-93 defines / and % via C integer division (truncates toward zero).
+    Python's // and % floor toward negative infinity, so they disagree for
+    negative operands -- hence this explicit truncating version.
+    """
     if a == 0:
         return 0, 0
     q = abs(b) // abs(a)
@@ -20,7 +27,9 @@ def _cdivmod(b, a):
 
 
 class Stepper:
-    """Walks the IP, pausing whenever it lands on a blank cell to be filled."""
+    """
+    Walks the IP, pausing whenever it lands on a blank cell to be filled.
+    """
 
     def __init__(self, grid):
         self.grid = grid               # (H, W) ids, indexed grid[y, x]
@@ -34,17 +43,23 @@ class Stepper:
         self.halted = False
 
     def _advance(self):
-        """Move the IP one cell along its direction, wrapping the torus."""
+        """
+        Move the IP one cell along its direction, wrapping the torus.
+        """
         H, W = self.grid.shape
         self.x = (self.x + self.dx) % W
         self.y = (self.y + self.dy) % H
 
     def _pop(self):
-        """Pop the stack, returning 0 if empty (matches befunge.py)."""
+        """
+        Pop the stack, returning 0 if empty (matches befunge.py).
+        """
         return self.stack.pop() if self.stack else 0
 
     def _exec(self, op):
-        """Apply one op's effect on the state. op is a vocab id."""
+        """
+        Apply one op's effect on the state. op is a vocab id.
+        """
         ch = ID_TO_CHAR[op]
         if ch in "0123456789": # push the digit's value
             self.stack.append(int(ch))
@@ -113,12 +128,16 @@ class Stepper:
             self.halted = True
 
     def place(self, op):
-        """Fill the current blank cell with op id and mark it filled."""
+        """
+        Fill the current blank cell with op id and mark it filled.
+        """
         self.grid[self.y, self.x] = op
         self.filled[self.y, self.x] = True
 
     def step(self):
-        """Execute the current (filled) cell, then advance unless halted."""
+        """
+        Execute the current (filled) cell, then advance unless halted.
+        """
         op = int(self.grid[self.y, self.x])
         # string mode disabled: vocab has no string chars (letters)
         # ch = ID_TO_CHAR[op]

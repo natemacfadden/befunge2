@@ -1,4 +1,6 @@
-"""CNN that predicts the op at the IP cell from the partial grid."""
+"""
+CNN that predicts the op at the IP cell from the partial grid.
+"""
 
 import torch
 import torch.nn as nn

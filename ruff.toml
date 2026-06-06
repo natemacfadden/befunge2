@@ -2,3 +2,7 @@ line-length = 80
 
 [lint]
 select = ["E", "F", "I"]   # pycodestyle errors, pyflakes, import sorting
+
+[lint.per-file-ignores]
+# the interpreter's dispatch table is intentionally a compact one-liner column
+"befunge.py" = ["E701"]

@@ -1,4 +1,6 @@
-"""Tokenize an integer sequence into padded token ids for the model."""
+"""
+Tokenize an integer sequence into padded token ids for the model.
+"""
 
 import numpy as np
 
@@ -10,7 +12,9 @@ OBS_VOCAB_SIZE = 13
 
 
 def _term_to_tokens(term):
-    """Token ids for a single integer term: optional '-' then its digits."""
+    """
+    Token ids for a single integer term: optional '-' then its digits.
+    """
     ids = []
     if term < 0:
         ids.append(NEG)
@@ -19,7 +23,9 @@ def _term_to_tokens(term):
     return ids
 
 def _term_from_tokens(ids):
-    """Decode one term's token ids back to an int: optional NEG then digits."""
+    """
+    Decode one term's token ids back to an int: optional NEG then digits.
+    """
     neg = len(ids) > 0 and ids[0] == NEG
     digits = ids[1:] if neg else ids
 

@@ -1,4 +1,6 @@
-"""Interface from model to benchmark."""
+"""
+Interface from model to benchmark.
+"""
 
 from typing import Protocol
 

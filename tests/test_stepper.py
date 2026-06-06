@@ -1,21 +1,20 @@
-"""Cross-test: the stepper reproduces befunge.py's output."""
+"""
+Cross-test: the stepper reproduces befunge.py's output.
+"""
 
-import sys
-from io import StringIO
+from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, "/home/nate/befunge")
 import befunge
-
 from models.cnn.grid import to_grid
 from models.cnn.stepper import Stepper
 
-EXAMPLES = "/home/nate/befunge/examples"
+EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 
 def _load(name):
-    with open(f"{EXAMPLES}/{name}") as f:
+    with open(EXAMPLES / name) as f:
         return f.read().rstrip("\n")
 
 
@@ -27,9 +26,8 @@ def _step_output(source):
 
 
 def _befunge_output(source):
-    buf = StringIO()
-    befunge.run(source, max_steps=1_000_000, out=buf)
-    return buf.getvalue()
+    output, *_ = befunge.run(source, max_steps=1_000_000)
+    return output
 
 
 def _check_full(name):
