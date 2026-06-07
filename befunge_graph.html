@@ -1,0 +1,127 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+ body{margin:0;font-family:sans-serif;overflow:hidden}
+ #bar{position:fixed;top:8px;left:8px;z-index:20}
+ #bar button,#bar select{font:13px sans-serif;padding:5px 10px;cursor:pointer}
+ #tip{position:fixed;display:none;background:#222;color:#eee;padding:8px 10px;
+   border-radius:6px;font:12px/1.45 monospace;pointer-events:none;
+   box-shadow:0 2px 8px rgba(0,0,0,.4);z-index:30;white-space:nowrap}
+ svg{background:#fafafa;width:100vw;height:100vh;display:block;cursor:grab}
+ svg:active{cursor:grabbing}
+ .node{cursor:grab} .hit{cursor:pointer}
+</style></head><body>
+<div id="bar">
+ <select id="layout">
+  <option value="grid">grid</option>
+  <option value="tidy">tidy (fewer crossings)</option>
+ </select>
+ <button id="reset">reset layout</button>
+ <button id="zin">zoom +</button>
+ <button id="zout">zoom &minus;</button>
+ <button id="zreset">reset view</button></div>
+<div id="tip"></div>
+<svg id="svg" viewBox="0 0 1220 1220" preserveAspectRatio="xMidYMid meet">
+<defs><marker id="a-fixed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1f77b4"/></marker><marker id="a-pass" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#7f7f7f"/></marker><marker id="a-stack" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ff7f0e"/></marker><marker id="a-random" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9467bd"/></marker><marker id="a-halt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d62728"/></marker><marker id="a-start" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2ca02c"/></marker></defs>
+<g id="viewport"><g id="edges"></g><g id="nodes"></g></g></svg>
+<script>
+const D={"W": 1220, "H": 1220, "R": 16, "colors": {"fixed": "#1f77b4", "pass": "#7f7f7f", "stack": "#ff7f0e", "random": "#9467bd", "halt": "#d62728", "start": "#2ca02c"}, "dash": {"stack": "6,4", "random": "2,4"}, "nodes": [{"char": "v", "kind": "fixed", "tip": "<b>&#x27;v&#x27; at (0,0)</b><br>kind: fixed<br>arrives right &rarr; down (0, 0) (p=1)<br>arrives left &rarr; down (0, 0) (p=1)<br>arrives up &rarr; down (0, 0) (p=1)<br>arrives down &rarr; down (0, 0) (p=1)"}, {"char": ">", "kind": "start", "tip": "<b>start (synthetic)</b><br>not on the playfield; IP begins here heading right &rarr; (0, 0)"}], "edges": [{"s": 0, "d": 0, "kind": "fixed", "tip": "<b>(0,0) &rarr; (0,0)</b><br>kind: fixed<br>arrives right &rarr; exits down (p=1)<br>arrives right &rarr; exits down (p=1)<br>arrives left &rarr; exits down (p=1)<br>arrives left &rarr; exits down (p=1)<br>arrives up &rarr; exits down (p=1)<br>arrives up &rarr; exits down (p=1)<br>arrives down &rarr; exits down (p=1)<br>arrives down &rarr; exits down (p=1)"}, {"s": 1, "d": 0, "kind": "start", "tip": "<b>start</b><br>program entry &rarr; first executed cell (0, 0)"}], "start": "grid", "layouts": {"grid": [[650.0, 610.0], [570.0, 610.0]], "tidy": [[1160.0, 608.989857159935], [60.0, 608.989857159935]]}}, NS="http://www.w3.org/2000/svg", R=D.R;
+const svg=document.getElementById("svg"), tip=document.getElementById("tip");
+const eg=document.getElementById("edges"), ng=document.getElementById("nodes");
+const vp=document.getElementById("viewport");
+let vsc=1, vtx=0, vty=0;                       // viewport zoom + pan
+function applyView(){vp.setAttribute("transform",
+  `translate(${vtx},${vty}) scale(${vsc})`);}
+// pointer -> local coords of `el`, robust to viewBox/zoom/pan
+function toLocal(el,e){const p=new DOMPoint(e.clientX,e.clientY)
+  .matrixTransform(el.getScreenCTM().inverse()); return {x:p.x,y:p.y};}
+const worldXY=e=>toLocal(vp,e), svgPt=e=>toLocal(svg,e);
+let layout=D.start;
+const pos=D.layouts[layout].map(p=>({x:p[0],y:p[1]}));
+function E(tag,a){const e=document.createElementNS(NS,tag);
+  for(const k in a)e.setAttribute(k,a[k]);return e;}
+const evis=[], ehit=[];
+D.edges.forEach(ed=>{
+  const col=D.colors[ed.kind]||"#7f7f7f";
+  const v=E("path",{fill:"none",stroke:col,"stroke-width":2,
+    "marker-end":`url(#a-${ed.kind})`,"pointer-events":"none"});
+  if(D.dash[ed.kind])v.setAttribute("stroke-dasharray",D.dash[ed.kind]);
+  const h=E("path",{class:"hit",fill:"none",stroke:"transparent",
+    "stroke-width":12});
+  h.addEventListener("mouseenter",()=>showTip(ed.tip));
+  h.addEventListener("mousemove",moveTip);
+  h.addEventListener("mouseleave",hideTip);
+  eg.appendChild(v); eg.appendChild(h); evis.push(v); ehit.push(h);
+});
+const ngs=[];
+D.nodes.forEach((n,i)=>{
+  const g=E("g",{class:"node"}), col=D.colors[n.kind]||"#7f7f7f";
+  g.appendChild(E("circle",{r:R,fill:n.kind==="start"?col:"white",
+    stroke:col,"stroke-width":2.5}));
+  const t=E("text",{"text-anchor":"middle","font-family":"monospace",
+    "font-size":15,dy:"0.35em"});
+  t.textContent=n.char; g.appendChild(t);
+  g.addEventListener("mouseenter",()=>showTip(n.tip));
+  g.addEventListener("mousemove",moveTip);
+  g.addEventListener("mouseleave",hideTip);
+  g.addEventListener("mousedown",e=>startDrag(i,e));
+  ng.appendChild(g); ngs.push(g);
+});
+function edgePath(s,d){
+  const a=pos[s], b=pos[d];
+  if(s===d)return `M${a.x-7},${a.y-R} C${a.x-30},${a.y-R-40} `+
+    `${a.x+30},${a.y-R-40} ${a.x+7},${a.y-R}`;
+  // perpendicular from a CANONICAL direction (low->high index) so A->B and
+  // B->A share it; the sign then bows them to opposite sides instead of both
+  // landing on top of each other
+  const A=pos[Math.min(s,d)], B=pos[Math.max(s,d)];
+  let vx=B.x-A.x, vy=B.y-A.y, L=Math.hypot(vx,vy)||1;
+  let nx=-vy/L, ny=vx/L, sign=(s<d)?1:-1, bow=sign*(7+Math.min(L*0.10,45));
+  let cx=(a.x+b.x)/2+nx*bow, cy=(a.y+b.y)/2+ny*bow;
+  const tr=(px,py)=>{let ux=cx-px,uy=cy-py,l=Math.hypot(ux,uy)||1;
+    return [px+ux/l*R,py+uy/l*R];};
+  let p=tr(a.x,a.y), q=tr(b.x,b.y);
+  return `M${p[0]},${p[1]} Q${cx},${cy} ${q[0]},${q[1]}`;
+}
+function render(){
+  D.edges.forEach((ed,i)=>{const dp=edgePath(ed.s,ed.d);
+    evis[i].setAttribute("d",dp); ehit[i].setAttribute("d",dp);});
+  ngs.forEach((g,i)=>g.setAttribute("transform",
+    `translate(${pos[i].x},${pos[i].y})`));
+}
+let drag=null, off={x:0,y:0}, pan=null;
+function startDrag(i,e){drag=i;const p=worldXY(e);
+  off={x:p.x-pos[i].x,y:p.y-pos[i].y}; hideTip();
+  e.stopPropagation(); e.preventDefault();}      // don't also start a pan
+svg.addEventListener("mousedown",e=>{            // drag on empty canvas = pan
+  const s=svgPt(e); pan={x0:s.x,y0:s.y,tx0:vtx,ty0:vty}; hideTip();});
+window.addEventListener("mousemove",e=>{
+  if(drag!==null){const p=worldXY(e);
+    pos[drag]={x:p.x-off.x,y:p.y-off.y}; render(); return;}
+  if(pan){const s=svgPt(e);
+    vtx=pan.tx0+(s.x-pan.x0); vty=pan.ty0+(s.y-pan.y0); applyView();}});
+window.addEventListener("mouseup",()=>{drag=null; pan=null;});
+svg.addEventListener("wheel",e=>{e.preventDefault();   // wheel = zoom at cursor
+  const s=svgPt(e),
+    ns=Math.min(8,Math.max(0.15,vsc*Math.exp(-e.deltaY*0.0015)));
+  vtx=s.x-(s.x-vtx)*(ns/vsc); vty=s.y-(s.y-vty)*(ns/vsc);
+  vsc=ns; applyView();},{passive:false});
+function zoomBy(f){const cx=D.W/2, cy=D.H/2,
+  ns=Math.min(8,Math.max(0.15,vsc*f));
+  vtx=cx-(cx-vtx)*(ns/vsc); vty=cy-(cy-vty)*(ns/vsc); vsc=ns; applyView();}
+function resetView(){vsc=1; vtx=0; vty=0; applyView();}
+function showTip(h){if(drag!==null||pan)return;
+  tip.innerHTML=h; tip.style.display="block";}
+function moveTip(e){tip.style.left=(e.clientX+14)+"px";
+  tip.style.top=(e.clientY+14)+"px";}
+function hideTip(){tip.style.display="none";}
+function applyLayout(){D.layouts[layout].forEach((p,i)=>
+  pos[i]={x:p[0],y:p[1]}); render();}
+document.getElementById("reset").addEventListener("click",applyLayout);
+document.getElementById("zin").addEventListener("click",()=>zoomBy(1.25));
+document.getElementById("zout").addEventListener("click",()=>zoomBy(0.8));
+document.getElementById("zreset").addEventListener("click",resetView);
+const sel=document.getElementById("layout");
+sel.value=D.start;
+sel.addEventListener("change",e=>{layout=e.target.value; applyLayout();});
+render(); applyView();
+</script></body></html>

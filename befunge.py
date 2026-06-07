@@ -439,24 +439,6 @@ def run(src, max_steps=None, jit=False):
     # return
     return output, status_str, final_stack, visited
 
-
-def prune_program(src, visited):
-    """
-    Return `src` with every unvisited initial-grid cell replaced by a space;
-    only source chars survive, runtime `p` mutations don't show up here.
-    Prunes regardless of status, so for step_limit/error runs this is a faithful
-    image of the observed execution, not the program's full intent.
-    """
-    grid = str_to_grid(src)
-    gh, gw = grid.shape
-    rows = []
-    for y in range(gh):
-        row = []
-        for x in range(gw):
-            row.append(chr(int(grid[y, x])) if visited[y, x] else ' ')
-        rows.append(''.join(row).rstrip())
-    return '\n'.join(rows).rstrip('\n')
-
 # cli / gui entry
 if __name__ == '__main__':
     import argparse
@@ -468,6 +450,8 @@ if __name__ == '__main__':
     p.add_argument('--max-steps', type=int, default=None)
     p.add_argument('--jit', action='store_true')
     args = p.parse_args()
+
+    # run
     if args.file is None:
         from viz.gui import App
         App().run()

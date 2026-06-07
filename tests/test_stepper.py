@@ -1,12 +1,13 @@
 """
-Cross-test: the stepper reproduces befunge.py's output.
+Plumbing test: driving the stepper's fill/pause loop with the true op at each
+cell reproduces befunge.py's output. Exercises the fill mechanic and the
+vocab-id <-> ASCII bridge (the stepper shares the interpreter's op semantics,
+so this checks the plumbing, not the semantics).
 """
 
 from pathlib import Path
 
-import numpy as np
-
-import befunge
+import befunge as bf
 from models.cnn.grid import to_grid
 from models.cnn.stepper import Stepper
 
@@ -20,13 +21,13 @@ def _load(name):
 
 def _step_output(source):
     truth = to_grid(source)
-    s = Stepper(np.zeros_like(truth))            # blank grid, like generation
+    s = Stepper(truth.shape)                 # blank grid, like generation
     s.fill(lambda s: int(truth[s.y, s.x]))  # feed the true op at each new cell
-    return "".join(s.output)
+    return s.output
 
 
 def _befunge_output(source):
-    output, *_ = befunge.run(source, max_steps=1_000_000)
+    output, *_ = bf.run(source, max_steps=1_000_000)
     return output
 
 

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "befunge2"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+py-modules = ["befunge"]
+
+[tool.setuptools.packages.find]
+include = ["bench*", "models*", "viz*"]
+
+[tool.setuptools.package-data]
+viz = ["*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

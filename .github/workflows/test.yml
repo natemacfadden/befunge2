@@ -8,6 +8,9 @@ jobs:
       - uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: environment.yml
+      - name: install package
+        shell: bash -el {0}
+        run: pip install -e . --no-deps
       - name: run tests
         shell: bash -el {0}
         run: python -m pytest -q

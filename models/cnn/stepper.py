@@ -1,157 +1,83 @@
-"""Steppable befunge interpreter: pauses on blank cells so we can fill them.
+"""
+Steppable befunge generator: walks bf._run_core one instruction at a time,
+pausing whenever the IP lands on an unfilled cell so a caller can place an op.
 
-Step-by-step Python mirror of befunge.py's run-to-completion njit core. Same
-op semantics, but pauses on blank cells so generation can fill them live.
+No op semantics live here -- every instruction is executed by the real
+interpreter (befunge._run_core), the same engine the verifier uses. This class
+only adds the pause-on-blank behavior and the vocab-id <-> ASCII bridge between
+the model and the interpreter.
 """
 
 import numpy as np
 
-from models.cnn.vocab import ID_TO_CHAR
+import befunge as bf
+from models.cnn.vocab import CHAR_TO_ID, ID_TO_CHAR
 
-
-def _cdivmod(b, a):
-    """
-    Integer division and remainder truncating toward zero, with (0, 0) when
-    a == 0.
-
-    Befunge-93 defines / and % via C integer division (truncates toward zero).
-    Python's // and % floor toward negative infinity, so they disagree for
-    negative operands -- hence this explicit truncating version.
-    """
-    if a == 0:
-        return 0, 0
-    q = abs(b) // abs(a)
-    if (b < 0) != (a < 0):
-        q = -q
-    return q, b - a * q
+# (dx, dy) -> heading index, matching the model's {0:^, 1:>, 2:v, 3:<}
+_HEADING = {(0, -1): 0, (1, 0): 1, (0, 1): 2, (-1, 0): 3}
+_BLANK = ord(" ")   # unfilled cells read as space (a no-op for the interpreter)
 
 
 class Stepper:
     """
-    Walks the IP, pausing whenever it lands on a blank cell to be filled.
+    Walks the IP, pausing whenever it lands on an unfilled cell to be filled.
     """
 
-    def __init__(self, grid):
-        self.grid = grid               # (H, W) ids, indexed grid[y, x]
-        self.filled = np.zeros_like(grid, dtype=bool)
-        self.x, self.y = 0, 0          # start top-left, moving right
-        self.dx, self.dy = 1, 0
-        self.stack = []
+    def __init__(self, shape):
+        """
+        Start a blank generator over an (H, W) grid.
+        """
+        self.grid = np.full(shape, _BLANK, dtype=np.int32)
+        self.filled = np.zeros(shape, dtype=bool)
+        self.stack = np.zeros(bf.STACK_CAP, dtype=np.int64)
+        self.out_buf = np.zeros(bf.OUTPUT_CAP, dtype=np.int32)
+        self.visited = np.zeros(shape, dtype=np.uint8)
+        self.state = bf.new_state()
         self.regs = {}
-        self.output = []
-        # self.string_mode = False  # disabled: no string chars in vocab
         self.halted = False
+        self.error = None
 
-    def _advance(self):
-        """
-        Move the IP one cell along its direction, wrapping the torus.
-        """
-        H, W = self.grid.shape
-        self.x = (self.x + self.dx) % W
-        self.y = (self.y + self.dy) % H
+    @property
+    def x(self):
+        return int(self.state[bf.S_X])
 
-    def _pop(self):
-        """
-        Pop the stack, returning 0 if empty (matches befunge.py).
-        """
-        return self.stack.pop() if self.stack else 0
+    @property
+    def y(self):
+        return int(self.state[bf.S_Y])
 
-    def _exec(self, op):
-        """
-        Apply one op's effect on the state. op is a vocab id.
-        """
-        ch = ID_TO_CHAR[op]
-        if ch in "0123456789": # push the digit's value
-            self.stack.append(int(ch))
-        elif ch == ">":
-            self.dx, self.dy = 1, 0
-        elif ch == "<":
-            self.dx, self.dy = -1, 0
-        elif ch == "^":
-            self.dx, self.dy = 0, -1
-        elif ch == "v":
-            self.dx, self.dy = 0, 1
-        elif ch == "_": # pop, go right if 0 else left
-            self.dx, self.dy = (1, 0) if self._pop() == 0 else (-1, 0)
-        elif ch == "|": # pop, go down if 0 else up
-            self.dx, self.dy = (0, 1) if self._pop() == 0 else (0, -1)
-        elif ch == "+": # pop a, pop b, push b + a
-            a, b = self._pop(), self._pop()
-            self.stack.append(b + a)
-        elif ch == "*": # pop a, pop b, push b * a
-            a, b = self._pop(), self._pop()
-            self.stack.append(b * a)
-        elif ch == "-": # pop a, pop b, push b - a
-            a, b = self._pop(), self._pop()
-            self.stack.append(b - a)
-        elif ch == "/": # pop a, pop b, push trunc(b / a) (0 if a == 0)
-            a, b = self._pop(), self._pop()
-            self.stack.append(_cdivmod(b, a)[0])
-        elif ch == "%": # pop a, pop b, push C-remainder of b / a (0 if a == 0)
-            a, b = self._pop(), self._pop()
-            self.stack.append(_cdivmod(b, a)[1])
-        elif ch == ":": # duplicate top (0 if empty)
-            v = self._pop()
-            self.stack.append(v)
-            self.stack.append(v)
-        elif ch == "\\": # swap top two
-            a, b = self._pop(), self._pop()
-            self.stack.append(a)
-            self.stack.append(b)
-        elif ch == "$": # pop and discard
-            self._pop()
-        elif ch == "!": # logical not: pop v, push 1 if v == 0 else 0
-            self.stack.append(1 if self._pop() == 0 else 0)
-        elif ch == "`": # greater-than: pop a, pop b, push 1 if b > a else 0
-            a, b = self._pop(), self._pop()
-            self.stack.append(1 if b > a else 0)
-        elif ch == ".": # pop v, output str(v) + " "
-            self.output.append(str(self._pop()) + " ")
-        elif ch == ",": # pop v, output chr(v % 256)
-            self.output.append(chr(self._pop() % 256))
-        elif ch == "g": # get: pop i, push regs[i] (0 if absent)
-            self.stack.append(self.regs.get(self._pop(), 0))
-        elif ch == "p": # put: pop i, pop v, regs[i] = v
-            i, v = self._pop(), self._pop()
-            self.regs[i] = v
-        elif ch == "&": # read int from stdin -> push 0 (this variant)
-            self.stack.append(0)
-        elif ch == "~": # read char from stdin -> push 0 (this variant)
-            self.stack.append(0)
-        # elif ch == '"': # toggle string mode (disabled: not in vocab)
-        #     self.string_mode = not self.string_mode
-        elif ch == "?": # random direction -- nondeterministic
-            raise NotImplementedError("'?' is nondeterministic; not supported")
-        elif ch == "#": # bridge: skip the next cell
-            self._advance()
-        elif ch == "@": # halt
-            self.halted = True
+    @property
+    def output(self):
+        n = int(self.state[bf.S_OUT_LEN])
+        return "".join(chr(int(c)) for c in self.out_buf[:n])
 
     def place(self, op):
         """
-        Fill the current blank cell with op id and mark it filled.
+        Fill the current cell with op (a vocab id) and mark it filled.
         """
-        self.grid[self.y, self.x] = op
+        self.grid[self.y, self.x] = ord(ID_TO_CHAR[op])
         self.filled[self.y, self.x] = True
 
     def step(self):
         """
-        Execute the current (filled) cell, then advance unless halted.
+        Execute the current (filled) cell via the real interpreter, advancing
+        the IP. Sets halted on a halt (@) or an error.
         """
-        op = int(self.grid[self.y, self.x])
-        # string mode disabled: vocab has no string chars (letters)
-        # ch = ID_TO_CHAR[op]
-        # if self.string_mode and ch != '"':
-        #     self.stack.append(ord(ch))   # string mode: push char
-        # else:
-        #     self._exec(op)
-        self._exec(op)
-        if not self.halted:
-            self._advance()
+        with np.errstate(over="ignore"):   # int64 arithmetic wraps; don't warn
+            status = bf._run_core(
+                self.grid, 1, self.stack, self.out_buf, self.state,
+                self.visited, self.regs,
+            )
+        if status == 0:
+            self.halted = True
+        elif status == 2:
+            self.halted = True
+            self.error = "p: stack underflow"
 
     def run(self, max_steps=100000):
-        """Walk filled cells until the IP lands on a new cell, halts,
-        or hits the cap. Returns 'newcell', 'halt', or 'limit'."""
+        """
+        Walk filled cells until the IP lands on a new cell, halts, or hits the
+        cap. Returns 'newcell', 'halt', or 'limit'.
+        """
         for _ in range(max_steps):
             if not self.filled[self.y, self.x]:
                 return "newcell"
@@ -161,10 +87,25 @@ class Stepper:
         return "limit"
 
     def fill(self, choose_op, max_steps=100000):
-        """Run to halt/limit, calling choose_op(self) at each new cell
-        to place an op."""
+        """
+        Run to halt/limit, calling choose_op(self) at each new cell to place
+        an op.
+        """
         while True:
             status = self.run(max_steps)
             if status != "newcell":
                 return status
             self.place(choose_op(self))
+
+    def worldstate(self):
+        """
+        The model's view: (vocab_grid, filled, ip, heading), where vocab_grid
+        is the (H, W) grid as vocab ids, ip is (x, y), and heading is the IP's
+        direction as {0:^, 1:>, 2:v, 3:<}.
+        """
+        vocab_grid = np.array(
+            [[CHAR_TO_ID[chr(int(b))] for b in row] for row in self.grid],
+            dtype=np.int64,
+        )
+        heading = _HEADING[(int(self.state[bf.S_DX]), int(self.state[bf.S_DY]))]
+        return vocab_grid, self.filled.copy(), (self.x, self.y), heading

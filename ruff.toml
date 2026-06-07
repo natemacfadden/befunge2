@@ -6,3 +6,5 @@ select = ["E", "F", "I"]   # pycodestyle errors, pyflakes, import sorting
 [lint.per-file-ignores]
 # the interpreter's dispatch table is intentionally a compact one-liner column
 "befunge.py" = ["E701"]
+# graph.py keeps a compact dispatch table and paired x/y vector-math one-liners
+"viz/graph.py" = ["E701", "E702"]

@@ -4,7 +4,7 @@ Run a Befunge program with the project interpreter and read its integers.
 
 import re
 
-import befunge
+import befunge as bf
 
 # Befunge loops have no natural halt; bound work by instruction count instead
 # of a wall clock. emitters are tight, so this is generous for a few terms.
@@ -17,7 +17,7 @@ def run(source: str, n: int, timeout: float) -> list[int]:
     Returns fewer than n (or none) if it errors or hits the step limit before
     emitting n. `timeout` is unused -- work is bounded by _MAX_STEPS.
     """
-    output, *_ = befunge.run(source, max_steps=_MAX_STEPS)
+    output, *_ = bf.run(source, max_steps=_MAX_STEPS)
     return _parse_ints(output)[:n]
 
 
