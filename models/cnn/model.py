@@ -5,11 +5,16 @@ CNN that predicts the op at the IP cell from the partial grid.
 import torch
 import torch.nn as nn
 
+from models.cnn.attention import EncoderLayer, rope_tables
 from models.cnn.tokenization import OBS_VOCAB_SIZE, OP_VOCAB_SIZE, PAD
 
-EMBED_DIM = 16   # per-cell op embedding width
-MODEL_DIM = 64   # observation feature / attention width (D)
-print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM} -- tune these")
+EMBED_DIM = 16           # per-cell op embedding width
+MODEL_DIM = 64           # observation feature / attention width (D)
+NUM_HEADS = 4            # attention heads (head_dim = MODEL_DIM / NUM_HEADS)
+NUM_ENCODER_LAYERS = 2   # stacked self-attention + feed-forward blocks
+print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM}, "
+      f"NUM_HEADS={NUM_HEADS}, NUM_ENCODER_LAYERS={NUM_ENCODER_LAYERS} "
+      f"-- tune these")
 
 
 class CNN(nn.Module):
@@ -21,6 +26,9 @@ class CNN(nn.Module):
         self.op_embed = nn.Embedding(OP_VOCAB_SIZE, EMBED_DIM)
         self.obs_embed = nn.Embedding(
             OBS_VOCAB_SIZE, MODEL_DIM, padding_idx=PAD)
+        self.encoder = nn.ModuleList(
+            [EncoderLayer(MODEL_DIM, NUM_HEADS)
+             for _ in range(NUM_ENCODER_LAYERS)])
 
     def encode_worldstate(self, grid, filled, ip, heading):
         """
@@ -77,7 +85,13 @@ class CNN(nn.Module):
         # embed -- attention needs the feature dim last (B, L, MODEL_DIM)
         x = self.obs_embed(tokens)
 
-        # encode (self-attention over the L positions) -- added next
+        # encode: run the token features through the self-attention stack
+        L = tokens.shape[1]
+        cos, sin = rope_tables(L, MODEL_DIM // NUM_HEADS)
+        cos, sin = cos.to(x.device), sin.to(x.device)
+        pad_mask = tokens != PAD          # (B, L) True at real tokens
+        for layer in self.encoder:
+            x = layer(x, cos, sin, pad_mask)
         return x
 
     def forward(self, worldstate_features, observation_features, ip):

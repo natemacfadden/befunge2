@@ -200,3 +200,35 @@ class SelfAttention(nn.Module):
         # merge heads back: (B, heads, L, hd) -> (B, L, model_dim)
         out = out.transpose(1, 2).reshape(B, L, -1)
         return self.out_proj(out)
+
+
+# =============================================================================
+# Encoder layer
+# =============================================================================
+
+class EncoderLayer(nn.Module):
+    """
+    One transformer encoder block: self-attention then a per-token
+    feed-forward, each wrapped in a residual connection and a LayerNorm
+    (pre-norm, so the norm is applied before each sublayer).
+    """
+
+    def __init__(self, model_dim, heads, ff_mult=4):
+        super().__init__()
+        self.attn = SelfAttention(model_dim, heads)
+        self.norm1 = nn.LayerNorm(model_dim)
+        self.ff = nn.Sequential(
+            nn.Linear(model_dim, ff_mult * model_dim),
+            nn.GELU(),
+            nn.Linear(ff_mult * model_dim, model_dim),
+        )
+        self.norm2 = nn.LayerNorm(model_dim)
+
+    def forward(self, obs_feats, cos, sin, pad_mask):
+        """
+        Pre-norm residual update of the (B, L, model_dim) token features.
+        """
+        obs_feats = obs_feats + self.attn(
+            self.norm1(obs_feats), cos, sin, pad_mask)
+        obs_feats = obs_feats + self.ff(self.norm2(obs_feats))
+        return obs_feats
