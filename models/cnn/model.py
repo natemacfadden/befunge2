@@ -5,8 +5,7 @@ CNN that predicts the op at the IP cell from the partial grid.
 import torch
 import torch.nn as nn
 
-from models.cnn.observation_tokenization import OBS_VOCAB_SIZE, PAD
-from models.cnn.vocab import VOCAB
+from models.cnn.tokenization import OBS_VOCAB_SIZE, OP_VOCAB_SIZE, PAD
 
 EMBED_DIM = 16   # per-cell op embedding width
 MODEL_DIM = 64   # observation feature / attention width (D)
@@ -16,7 +15,7 @@ print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM} -- tune these")
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.op_embed = nn.Embedding(len(VOCAB), EMBED_DIM)
+        self.op_embed = nn.Embedding(OP_VOCAB_SIZE, EMBED_DIM)
         self.obs_embed = nn.Embedding(
             OBS_VOCAB_SIZE, MODEL_DIM, padding_idx=PAD)
 

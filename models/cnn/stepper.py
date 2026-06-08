@@ -11,7 +11,7 @@ the model and the interpreter.
 import numpy as np
 
 import befunge as bf
-from models.cnn.vocab import CHAR_TO_ID, ID_TO_CHAR
+from models.cnn.tokenization import OP_FROM_ID, OP_TO_ID
 
 # (dx, dy) -> heading index, matching the model's {0:^, 1:>, 2:v, 3:<}
 _HEADING = {(0, -1): 0, (1, 0): 1, (0, 1): 2, (-1, 0): 3}
@@ -54,7 +54,7 @@ class Stepper:
         """
         Fill the current cell with op (a vocab id) and mark it filled.
         """
-        self.grid[self.y, self.x] = ord(ID_TO_CHAR[op])
+        self.grid[self.y, self.x] = ord(OP_FROM_ID[op])
         self.filled[self.y, self.x] = True
 
     def step(self):
@@ -104,7 +104,7 @@ class Stepper:
         direction as {0:^, 1:>, 2:v, 3:<}.
         """
         vocab_grid = np.array(
-            [[CHAR_TO_ID[chr(int(b))] for b in row] for row in self.grid],
+            [[OP_TO_ID[chr(int(b))] for b in row] for row in self.grid],
             dtype=np.int64,
         )
         heading = _HEADING[(int(self.state[bf.S_DX]), int(self.state[bf.S_DY]))]
