@@ -12,9 +12,12 @@ EMBED_DIM = 16           # per-cell op embedding width
 MODEL_DIM = 64           # observation feature / attention width (D)
 NUM_HEADS = 4            # attention heads (head_dim = MODEL_DIM / NUM_HEADS)
 NUM_ENCODER_LAYERS = 2   # stacked self-attention + feed-forward blocks
+WORLDSTATE_CHANNELS = EMBED_DIM + 5   # op-embed + filled flag + 4-way heading
+CONV_DIM = MODEL_DIM     # conv width; = obs width is convenient for cross-attn
+NUM_CONV_LAYERS = 3      # toroidal conv layers over the worldstate grid
 print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM}, "
-      f"NUM_HEADS={NUM_HEADS}, NUM_ENCODER_LAYERS={NUM_ENCODER_LAYERS} "
-      f"-- tune these")
+      f"NUM_HEADS={NUM_HEADS}, NUM_ENCODER_LAYERS={NUM_ENCODER_LAYERS}, "
+      f"NUM_CONV_LAYERS={NUM_CONV_LAYERS} -- tune these")
 
 
 class CNN(nn.Module):
@@ -29,6 +32,17 @@ class CNN(nn.Module):
         self.encoder = nn.ModuleList(
             [EncoderLayer(MODEL_DIM, NUM_HEADS)
              for _ in range(NUM_ENCODER_LAYERS)])
+
+        # toroidal conv body over the worldstate grid (circular padding wraps
+        # the edges, matching the playfield torus)
+        convs = [nn.Conv2d(WORLDSTATE_CHANNELS, CONV_DIM, 3,
+                           padding=1, padding_mode="circular"),
+                 nn.ReLU()]
+        for _ in range(NUM_CONV_LAYERS - 1):
+            convs += [nn.Conv2d(CONV_DIM, CONV_DIM, 3,
+                               padding=1, padding_mode="circular"),
+                      nn.ReLU()]
+        self.conv = nn.Sequential(*convs)
 
     def encode_worldstate(self, grid, filled, ip, heading):
         """

@@ -232,3 +232,72 @@ class EncoderLayer(nn.Module):
             self.norm1(obs_feats), cos, sin, pad_mask)
         obs_feats = obs_feats + self.ff(self.norm2(obs_feats))
         return obs_feats
+
+
+# =============================================================================
+# Cross-attention
+# =============================================================================
+
+class CrossAttention(nn.Module):
+    """
+    Multi-head cross-attention: grid cells (queries) attend to the observation
+    memory (keys/values), conditioning the program on the target sequence.
+
+    No RoPE: queries (2-D grid) and keys (1-D token sequence) live in different
+    coordinate spaces, so there is no shared relative position to rotate by.
+    The obs memory already carries its position from the encoder, and the grid
+    carries the IP position via the marker channel.
+
+    Queries (grid) and keys/values (obs) may have different widths; the
+    projections map both into a shared attention width attn_dim, where q . k is
+    defined, and out_proj maps back to q_dim so the result adds onto the grid.
+    """
+
+    def __init__(self, q_dim, kv_dim, attn_dim, heads):
+        super().__init__()
+        assert attn_dim % heads == 0, "attn_dim must be divisible by heads"
+        self.heads = heads
+        self.head_dim = attn_dim // heads
+        self.q_proj = nn.Linear(q_dim, attn_dim)     # from grid
+        self.k_proj = nn.Linear(kv_dim, attn_dim)    # from obs
+        self.v_proj = nn.Linear(kv_dim, attn_dim)
+        self.out_proj = nn.Linear(attn_dim, q_dim)   # back to grid width
+
+    def forward(self, grid_feats, obs_mem, pad_mask):
+        """
+        Grid cells attend to the observation memory.
+
+        Parameters
+        ----------
+        grid_feats : Tensor
+            (B, q_dim, H, W) grid features; the queries are projected from
+            these.
+        obs_mem : Tensor
+            (B, L, kv_dim) observation memory; the keys and values are
+            projected from it.
+        pad_mask : Tensor
+            (B, L) bool, True at real obs tokens, False at PAD.
+
+        Returns
+        -------
+        Tensor
+            (B, q_dim, H, W) obs-conditioned features, one per grid cell.
+        """
+        B, q_dim, H, W = grid_feats.shape
+        # flatten the grid into a sequence of H*W cell "tokens" (feature-last)
+        q_in = grid_feats.flatten(2).transpose(1, 2)   # (B, H*W, q_dim)
+        # queries from the grid, keys/values from the obs memory
+        q = self.q_proj(q_in).view(B, H * W, self.heads, self.head_dim)
+        k = self.k_proj(obs_mem).view(B, -1, self.heads, self.head_dim)
+        v = self.v_proj(obs_mem).view(B, -1, self.heads, self.head_dim)
+        # heads beside batch: (B, heads, seq, head_dim)
+        q, k, v = (t.transpose(1, 2) for t in (q, k, v))
+        # each of the H*W cells scores over the L obs keys
+        scores = q @ k.transpose(-2, -1) / self.head_dim**0.5
+        # never attend to PAD obs keys
+        scores = scores.masked_fill(~pad_mask[:, None, None, :], float("-inf"))
+        attn = scores.softmax(dim=-1)            # over the L keys
+        out = attn @ v                           # (B, heads, H*W, head_dim)
+        # merge heads (-> attn_dim), then fold the sequence back into the grid
+        out = out.transpose(1, 2).reshape(B, H * W, self.heads * self.head_dim)
+        return self.out_proj(out).transpose(1, 2).view(B, q_dim, H, W)
