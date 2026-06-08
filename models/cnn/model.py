@@ -5,15 +5,20 @@ CNN that predicts the op at the IP cell from the partial grid.
 import torch
 import torch.nn as nn
 
+from models.cnn.observation_tokenization import OBS_VOCAB_SIZE, PAD
 from models.cnn.vocab import VOCAB
 
-EMBED_DIM = 16   # per-cell op embedding width -- tune
+EMBED_DIM = 16   # per-cell op embedding width
+MODEL_DIM = 64   # observation feature / attention width (D)
+print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM} -- tune these")
 
 
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
         self.op_embed = nn.Embedding(len(VOCAB), EMBED_DIM)
+        self.obs_embed = nn.Embedding(
+            OBS_VOCAB_SIZE, MODEL_DIM, padding_idx=PAD)
 
     def encode_worldstate(self, grid, filled, ip, heading):
         """
@@ -35,6 +40,7 @@ class CNN(nn.Module):
         
         # data embedding
         emb = self.op_embed(grid)     # (B, H, W, EMBED_DIM)
+        # Conv2d needs the feature dim at axis 1 (channels-first), so permute
         emb = emb.permute(0, 3, 1, 2) # (B, EMBED_DIM, H, W)
 
         # indicator variable as to whether cells have been placed
@@ -50,27 +56,27 @@ class CNN(nn.Module):
         # return
         return torch.cat([emb, filled_flag, marker], dim=1)
 
-    def encode_observations(self, seq):
+    def encode_observations(self, tokens):
         """
-        Encode the target sequence into per-position features for
-        cross-attention:
-            1) tokenize each int into decimal digit tokens, separated
-               between terms,
-            2) embed tokens,
-            3) contextualize into per-position features.
-        Returns shape (B, L, D), where
-            B = batch size,
-            L = number of tokens after tokenization (digits + separators),
-            D = feature width per token.
+        Encode the tokenized target sequence into memory for the decoder to
+        attend to (embed the tokens, then self-attend over the sequence).
+
+        Parameters
+        ----------
+        tokens : LongTensor
+            (B, L) token ids from obs_to_tokens.
+
+        Returns
+        -------
+        Tensor
+            (B, L, D) per-token features, where B = batch size, L = token
+            length, and D = feature width per token.
         """
-        # tokenize
-        ...
+        # embed -- attention needs the feature dim last (B, L, MODEL_DIM)
+        x = self.obs_embed(tokens)
 
-        # embed
-        ...
-
-        # contextualize
-        ...
+        # encode (self-attention over the L positions) -- added next
+        return x
 
     def forward(self, worldstate_features, observation_features, ip):
         """
