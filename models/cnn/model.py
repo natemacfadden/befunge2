@@ -5,7 +5,7 @@ CNN that predicts the op at the IP cell from the partial grid.
 import torch
 import torch.nn as nn
 
-from models.cnn.attention import EncoderLayer, rope_tables
+from models.cnn.attention import CrossAttention, EncoderLayer, rope_tables
 from models.cnn.tokenization import OBS_VOCAB_SIZE, OP_VOCAB_SIZE, PAD
 
 EMBED_DIM = 16           # per-cell op embedding width
@@ -43,6 +43,12 @@ class CNN(nn.Module):
                                padding=1, padding_mode="circular"),
                       nn.ReLU()]
         self.conv = nn.Sequential(*convs)
+
+        # grid cells attend to the obs memory, then a per-cell readout to logits
+        self.cross_attn = CrossAttention(
+            q_dim=CONV_DIM, kv_dim=MODEL_DIM, attn_dim=MODEL_DIM,
+            heads=NUM_HEADS)
+        self.op_head = nn.Linear(CONV_DIM, OP_VOCAB_SIZE)
 
     def encode_worldstate(self, grid, filled, ip, heading):
         """
@@ -108,20 +114,30 @@ class CNN(nn.Module):
             x = layer(x, cos, sin, pad_mask)
         return x
 
-    def forward(self, worldstate_features, observation_features, ip):
+    def forward(self, worldstate_features, observation_features, pad_mask, ip):
         """
-        Predict the op at the IP cell:
-            1) run the conv layers, conditioning on the observations,
-            2) read the op logits at the IP cell.
-        worldstate_features and observation_features are precomputed by
-        encode_worldstate / encode_observations.
-        ip is (B, 2) of (x, y), used to index which cell's logits to return.
-        Returns shape (B, V), where
-            B = batch size,
-            V = vocab size (the op distribution at the IP cell).
-        """
-        # conv layers (conditioned on observation_features)
-        ...
+        Predict the op-logits at the IP cell.
 
-        # read logits at the IP cell
-        ...
+        Parameters
+        ----------
+        worldstate_features : Tensor
+            (B, WORLDSTATE_CHANNELS, H, W) from encode_worldstate.
+        observation_features : Tensor
+            (B, L, MODEL_DIM) obs memory from encode_observations.
+        pad_mask : Tensor
+            (B, L) bool, True at real obs tokens, False at PAD.
+        ip : LongTensor
+            (B, 2) of (x, y), the cell whose logits to return.
+
+        Returns
+        -------
+        Tensor
+            (B, V) op-logits at the IP cell (V = OP_VOCAB_SIZE).
+        """
+        B = worldstate_features.shape[0]
+        g = self.conv(worldstate_features)                 # (B, CONV_DIM, H, W)
+        # condition the grid on the observations (residual)
+        g = g + self.cross_attn(g, observation_features, pad_mask)
+        # readout: take the IP cell's feature vector, map to op-logits
+        cell = g[torch.arange(B), :, ip[:, 1], ip[:, 0]]   # (B, CONV_DIM)
+        return self.op_head(cell)                          # (B, V)
