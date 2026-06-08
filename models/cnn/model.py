@@ -15,6 +15,11 @@ NUM_ENCODER_LAYERS = 2   # stacked self-attention + feed-forward blocks
 WORLDSTATE_CHANNELS = EMBED_DIM + 5   # op-embed + filled flag + 4-way heading
 CONV_DIM = MODEL_DIM     # conv width; = obs width is convenient for cross-attn
 NUM_CONV_LAYERS = 3      # toroidal conv layers over the worldstate grid
+
+# the readout predicts one action per cell: place op 0..OP_VOCAB_SIZE-1, or
+# DONE (stop generating; the program is complete)
+DONE = OP_VOCAB_SIZE
+N_ACTIONS = OP_VOCAB_SIZE + 1
 print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM}, "
       f"NUM_HEADS={NUM_HEADS}, NUM_ENCODER_LAYERS={NUM_ENCODER_LAYERS}, "
       f"NUM_CONV_LAYERS={NUM_CONV_LAYERS} -- tune these")
@@ -48,7 +53,7 @@ class CNN(nn.Module):
         self.cross_attn = CrossAttention(
             q_dim=CONV_DIM, kv_dim=MODEL_DIM, attn_dim=MODEL_DIM,
             heads=NUM_HEADS)
-        self.op_head = nn.Linear(CONV_DIM, OP_VOCAB_SIZE)
+        self.op_head = nn.Linear(CONV_DIM, N_ACTIONS)
 
     def encode_worldstate(self, grid, filled, ip, heading):
         """
@@ -132,12 +137,13 @@ class CNN(nn.Module):
         Returns
         -------
         Tensor
-            (B, V) op-logits at the IP cell (V = OP_VOCAB_SIZE).
+            (B, N_ACTIONS) action-logits at the IP cell: indices
+            0..OP_VOCAB_SIZE-1 place that op, index DONE stops generating.
         """
         B = worldstate_features.shape[0]
         g = self.conv(worldstate_features)                 # (B, CONV_DIM, H, W)
         # condition the grid on the observations (residual)
         g = g + self.cross_attn(g, observation_features, pad_mask)
-        # readout: take the IP cell's feature vector, map to op-logits
+        # readout: take the IP cell's feature vector, map to action-logits
         cell = g[torch.arange(B), :, ip[:, 1], ip[:, 0]]   # (B, CONV_DIM)
-        return self.op_head(cell)                          # (B, V)
+        return self.op_head(cell)                          # (B, N_ACTIONS)

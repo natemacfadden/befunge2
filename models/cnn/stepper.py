@@ -76,14 +76,15 @@ class Stepper:
     def run(self, max_steps=100000):
         """
         Walk filled cells until the IP lands on a new cell, halts, or hits the
-        cap. Returns 'newcell', 'halt', or 'limit'.
+        cap. Returns 'newcell', 'halt', 'error', or 'limit' ('error' is a
+        runtime fault like a p underflow; 'halt' is a clean @).
         """
         for _ in range(max_steps):
             if not self.filled[self.y, self.x]:
                 return "newcell"
             self.step()
             if self.halted:
-                return "halt"
+                return "error" if self.error else "halt"
         return "limit"
 
     def fill(self, choose_op, max_steps=100000):
