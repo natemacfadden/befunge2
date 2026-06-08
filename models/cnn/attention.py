@@ -34,7 +34,11 @@ pairs distinguish far ones, so together every gap gets a distinct signature.
 """
 
 import torch
+import torch.nn as nn
 
+# =============================================================================
+# RoPE
+# =============================================================================
 
 def rope_tables(seq_len, head_dim, base=10000.0):
     """
@@ -102,3 +106,97 @@ def apply_rope(x, cos, sin):
         x with each pair rotated; same shape as x.
     """
     return x * cos + rotate_half(x) * sin
+
+
+# =============================================================================
+# Self-attention
+# =============================================================================
+
+class SelfAttention(nn.Module):
+    """
+    Multi-head self-attention with RoPE on the queries and keys.
+
+    Single head, one observation's L tokens stacked as X (L, d):
+
+        Q = X W_q        # (L, d)  row i is token i's query
+        K = X W_k        # (L, d)  row i is token i's key
+        V = X W_v        # (L, d)  row i is token i's value
+        S = Q K^T / sqrt(d)   # (L, L)  S[i,j] = query i . key j
+        A = softmax(S)        # (L, L)  row i sums to 1
+        O = A V               # (L, d)  row i = weighted average of values
+
+    Every token gets its own query, key, value (the rows of Q, K, V above).
+    Multi-head splits these q, k, v into `heads` slices of width head_dim and
+    attends within each slice on its own (its own matrix A).
+
+    The projections are full and learned, so the head can specialize on the
+    information relevant to it. E.g., one on adjacent digits and another on term
+    boundaries.
+
+    The (L, head_dim) head outputs are concatenated back to (L, D) and mixed by
+    out_proj, so nothing stays siloed. RoPE rotates each head's Q and K before S
+    (see apply_rope).
+
+    The projections are square (D -> D): keeping heads * head_dim = D leaves the
+    output at width D, flowing back into the residual stream unchanged.
+    """
+
+    def __init__(self, model_dim, heads):
+        super().__init__()
+        assert model_dim % heads == 0, "model_dim must be divisible by heads"
+        self.heads = heads
+        self.head_dim = model_dim // heads
+        assert self.head_dim % 2 == 0, "head_dim must be even for RoPE"
+        self.q_proj = nn.Linear(model_dim, model_dim)
+        self.k_proj = nn.Linear(model_dim, model_dim)
+        self.v_proj = nn.Linear(model_dim, model_dim)
+        self.out_proj = nn.Linear(model_dim, model_dim)
+
+    def forward(self, obs_feats, cos, sin, pad_mask):
+        """
+        Self-attend over the observation's L tokens.
+
+        Turns each token's embedding into a richer, context-aware vector by
+        letting it gather information from the tokens it relates to. Each token
+        queries the others, and its output is a position-aware convex
+        combination of their values, so (say) a digit can absorb its number's
+        other digits and its surrounding separators. Stacking several such
+        layers lets a token attend to neighbors that already gathered their own
+        context, building up the structure of each number.
+
+        Parameters
+        ----------
+        obs_feats : Tensor
+            (B, L, model_dim) observation token features.
+        cos, sin : Tensor
+            (L, head_dim) RoPE tables from rope_tables.
+        pad_mask : Tensor
+            (B, L) bool, True at real tokens, False at PAD slots.
+
+        Returns
+        -------
+        Tensor
+            (B, L, model_dim) attended features.
+        """
+        B, L, _ = obs_feats.shape
+        # project, then split model_dim into (heads, head_dim)
+        q = self.q_proj(obs_feats).view(B, L, self.heads, self.head_dim)
+        k = self.k_proj(obs_feats).view(B, L, self.heads, self.head_dim)
+        v = self.v_proj(obs_feats).view(B, L, self.heads, self.head_dim)
+        # attention's matmul acts on the last two dims (L, head_dim) and treats
+        # leading dims as batch. We want one attention per (batch, head), so
+        # move heads beside batch: (B, L, heads, hd) -> (B, heads, L, hd)
+        q, k, v = (t.transpose(1, 2) for t in (q, k, v))
+        # RoPE on q and k (position enters here)
+        q, k = apply_rope(q, cos, sin), apply_rope(k, cos, sin)
+        # (B, heads, L, L)
+        scores = q @ k.transpose(-2, -1) / self.head_dim**0.5
+        # never attend to PAD keys
+        scores = scores.masked_fill(~pad_mask[:, None, None, :], float("-inf"))
+        attn = scores.softmax(dim=-1)
+        # softmax weights are nonnegative and sum to 1, so each output row is a
+        # convex combination of the value vectors (a point in their convex hull)
+        out = attn @ v                            # (B, heads, L, head_dim)
+        # merge heads back: (B, heads, L, hd) -> (B, L, model_dim)
+        out = out.transpose(1, 2).reshape(B, L, -1)
+        return self.out_proj(out)
