@@ -15,6 +15,9 @@ print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM} -- tune these")
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
+        # at this stage these are just matrices...
+        # they'll be used for lookup (id -> row); their rows are parameters,
+        # learned during training
         self.op_embed = nn.Embedding(OP_VOCAB_SIZE, EMBED_DIM)
         self.obs_embed = nn.Embedding(
             OBS_VOCAB_SIZE, MODEL_DIM, padding_idx=PAD)
@@ -38,8 +41,8 @@ class CNN(nn.Module):
         B, H, W = grid.shape
         
         # data embedding
-        emb = self.op_embed(grid)     # (B, H, W, EMBED_DIM)
         # Conv2d needs the feature dim at axis 1 (channels-first), so permute
+        emb = self.op_embed(grid)     # (B, H, W, EMBED_DIM)
         emb = emb.permute(0, 3, 1, 2) # (B, EMBED_DIM, H, W)
 
         # indicator variable as to whether cells have been placed
@@ -68,8 +71,8 @@ class CNN(nn.Module):
         Returns
         -------
         Tensor
-            (B, L, D) per-token features, where B = batch size, L = token
-            length, and D = feature width per token.
+            (B, L, D) per-token features, where B = batch size, L = number of
+            tokens, and D = feature width per token.
         """
         # embed -- attention needs the feature dim last (B, L, MODEL_DIM)
         x = self.obs_embed(tokens)

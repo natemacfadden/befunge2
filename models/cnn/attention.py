@@ -43,7 +43,7 @@ def rope_tables(seq_len, head_dim, base=10000.0):
     Parameters
     ----------
     seq_len : int
-        Number of positions (sequence length L).
+        Number of positions, i.e. the number of tokens L.
     head_dim : int
         Per-head dimension; must be even (rotates head_dim // 2 pairs).
     base : float, optional

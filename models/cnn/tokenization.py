@@ -93,7 +93,7 @@ def obs_to_tokens(seqs):
         3) rows padded with PAD to the batch's max length.
     Returns an (B, L) int array, where
         B = number of sequences,
-        L = padded token length.
+        L = number of tokens (padded to the batch max).
     """
     # build tokenization as list of lists
     rows = []
