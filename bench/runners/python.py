@@ -9,9 +9,12 @@ import sys
 import tempfile
 
 
-def run(source: str, n: int, timeout: float) -> list[int]:
+def run(source: str, n: int, timeout: float,
+        max_steps: int = None) -> list[int]:
     """Run `source` as a standalone Python script; return the first n integers
-    it prints. Returns fewer than n (or none) on error or timeout."""
+    it prints. Returns fewer than n (or none) on error or timeout. max_steps is
+    ignored here (Python work is bounded by the wall-clock timeout); it exists
+    for interface parity with the Befunge runner."""
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
         f.write(source)
         path = f.name

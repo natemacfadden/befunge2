@@ -11,13 +11,17 @@ import befunge as bf
 _MAX_STEPS = 10_000_000
 
 
-def run(source: str, n: int, timeout: float) -> list[int]:
+def run(source: str, n: int, timeout: float,
+        max_steps: int = None) -> list[int]:
     """
     Run `source` on the interpreter; return the first n integers it prints.
     Returns fewer than n (or none) if it errors or hits the step limit before
-    emitting n. `timeout` is unused -- work is bounded by _MAX_STEPS.
+    emitting n. `timeout` is unused (work is bounded by instruction count);
+    max_steps overrides the default _MAX_STEPS budget (e.g. a tight cap for
+    fast training-reward verification).
     """
-    output, *_ = bf.run(source, max_steps=_MAX_STEPS)
+    output, *_ = bf.run(
+        source, max_steps=_MAX_STEPS if max_steps is None else max_steps)
     return _parse_ints(output)[:n]
 
 
