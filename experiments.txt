@@ -1,0 +1,97 @@
+===============================================================================
+--------------------------------------------------------------------------------
+Goal: given a number sequence, write a Befunge program that prints it
+--------------------------------------------------------------------------------
+===============================================================================
+
+Methods:
+    1) CNN
+    2) transformer
+    3) abstract graph
+
+===============================================================================
+CNN
+===============================================================================
+Method: autoregressively write one character at a time during program eval. When
+the code lands on an unwritten-to space, it picks a character via the CNN (or
+decides its done) and then continues.
+
+To pick up on the input sequence, encode that and use cross-attention.
+
+Cute to view this as an agent reconstructing a world/theory from a sequence of
+observations.
+
+Experiments
+--------------------------------------------------------------------------------
+1) 3x3 convolution, model generally ~64 (arises in a couple of places),
+
+trained via RL with loss N - lmbda*S for N the number of correct leading terms,
+lmbda = 0.5/(W*H), and S = #nonzero placed characters. Intent was to reward # of
+leading terms above all else; secondary reward of small programs
+
+-> even beginning with easy sequences (constant recursive sequences with order
+   1) this struggled. Sometimes it could get good programs but likely just lucky
+
+---
+
+2) maybe the reward signal is there but hidden? Turn off entropy (if we have too
+   weak rewards right now), try larger batches (term?) (to increase odds of
+   program success diversity within a batch... some good and some bad). Also
+   exclude the program's own score when giving it a reward (just comapre to
+   peers)
+
+-> no noticeable effect. 3x changes in one go but unlikely to have an effect
+
+---
+
+3) maybe the reward signal is too coarse? experiments 1 and 2 gave reward to
+   entire programs... but character insertions are finer grained and relevant...
+   Assign character-by-character rewards equal to the increase in correct
+   leading terms
+
+-> no noticeable effect. Turned back on entropy out of fear of collapse... maybe
+   this requires so much setup that it's not found (or, if it's found, it's not
+   recognized as great)
+
+---
+
+4) maybe the CNN can't read the input sequence? Compare a "trained" CNN on two
+   different constant sequences... see if the appropriate terms appear
+
+-> No! It can read! Consider 7 - when fed a sequence 7,7,... the model outputs a
+   7 character as first insertion with probabilitiy 0.28. For other seqs, this
+   drops much lower (~0.06). Bit spotty...
+
+---
+
+5) SFT on *easy* programs. We know optimal programs for constant sequences: to
+   emit all X for 0<=X<=9, just print the program "X." with X appropriately
+   replaced... good because we're not biasing towards a style, but instead
+   showing the true optimum
+
+-> LOL I'm wrong it worked fine here!!!
+
+---
+
+6) SFT on fibonnaci (nontrivial register program)... see
+   https://esolangs.org/wiki/Befunge for a sample program albeit in a different
+   style (I use tape registers)
+
+-> 40/42 characters are spot on. Distinguishing `p` characters is tricky...
+   can't even memorize with current code... probably need more program
+   information... like attention
+
+Outlook
+--------------------------------------------------------------------------------
+SFT was important for giving a handhold, but risky longterm for biasing data
+
+CNN likely primarily failed due to lacking large-scale program coordination
+information... attention is probably the way to go
+
+I am biased because I anticipated the CNN to fail, but I wanted it to succeed
+(it'd be so cute... analyzing the program as an image and having the IP
+explore/build the world as it goes)
+
+===============================================================================
+Transformer
+===============================================================================
