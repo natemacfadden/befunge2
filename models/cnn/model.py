@@ -5,8 +5,13 @@ CNN that predicts the op at the IP cell from the partial grid.
 import torch
 import torch.nn as nn
 
-from models.cnn.attention import CrossAttention, EncoderLayer, rope_tables
-from models.cnn.tokenization import OBS_VOCAB_SIZE, OP_VOCAB_SIZE, PAD
+from models.common.attention import CrossAttention, EncoderLayer, rope_tables
+from models.common.tokenization import (
+    N_ACTIONS,
+    OBS_VOCAB_SIZE,
+    OP_VOCAB_SIZE,
+    PAD,
+)
 
 EMBED_DIM = 16           # per-cell op embedding width
 MODEL_DIM = 64           # observation feature / attention width (D)
@@ -16,10 +21,6 @@ WORLDSTATE_CHANNELS = EMBED_DIM + 5   # op-embed + filled flag + 4-way heading
 CONV_DIM = MODEL_DIM     # conv width; = obs width is convenient for cross-attn
 NUM_CONV_LAYERS = 3      # toroidal conv layers over the worldstate grid
 
-# the readout predicts one action per cell: place op 0..OP_VOCAB_SIZE-1, or
-# DONE (stop generating; the program is complete)
-DONE = OP_VOCAB_SIZE
-N_ACTIONS = OP_VOCAB_SIZE + 1
 print(f"[cnn.model] EMBED_DIM={EMBED_DIM}, MODEL_DIM={MODEL_DIM}, "
       f"NUM_HEADS={NUM_HEADS}, NUM_ENCODER_LAYERS={NUM_ENCODER_LAYERS}, "
       f"NUM_CONV_LAYERS={NUM_CONV_LAYERS} -- tune these")

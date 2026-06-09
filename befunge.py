@@ -21,7 +21,7 @@ OUTPUT_CAP = 8192  # max output bytes per _run_core call; rest is truncated
 # Language
 # =============================================================================
 # Befunge-93 variant (see https://esolangs.org/wiki/Befunge). The IP travels an
-# 80x25 toroidal playfield executing the char it lands on, with inertia until an
+# 64x64 toroidal playfield executing the char it lands on, with inertia until an
 # op redirects it; most ops read/write an int64 stack.
 #
 # This variant splits code from data: the playfield is immutable code, and
@@ -30,7 +30,7 @@ OUTPUT_CAP = 8192  # max output bytes per _run_core call; rest is truncated
 # `"`) chars push their ASCII value instead of executing. SP is the stack
 # pointer (next push lands at stack[SP-1]).
 #
-W, H = 80, 25 # playfield dimensions (columns, rows)
+W, H = 64, 64 # playfield dimensions (columns, rows)
 
 # INSTRUCTIONS maps each instruction char to its ord value; ALPHABET adds the
 # two non-instruction chars that can appear on the grid (space, newline)

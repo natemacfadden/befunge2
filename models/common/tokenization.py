@@ -18,6 +18,10 @@ OP_TO_ID = {t: i for i, t in enumerate(OP_VOCAB)}
 OP_FROM_ID = {i: t for i, t in enumerate(OP_VOCAB)}
 OP_VOCAB_SIZE = len(OP_VOCAB)
 
+# action space: place any op (id 0..OP_VOCAB_SIZE-1) or signal DONE (stop)
+DONE = OP_VOCAB_SIZE
+N_ACTIONS = OP_VOCAB_SIZE + 1
+
 # observation tokens: digits 0-9 then specials, encoding an integer sequence
 OBS_VOCAB = list("0123456789") + ["PAD", "SEP", "NEG"]
 OBS_TO_ID = {t: i for i, t in enumerate(OBS_VOCAB)}
@@ -30,8 +34,8 @@ PAD, SEP, NEG = OBS_TO_ID["PAD"], OBS_TO_ID["SEP"], OBS_TO_ID["NEG"]
 # Program grid
 # =============================================================================
 
-H, W = 8, 32
-print("[cnn.tokenization] grid is hardcoded 8x32 -- tune this")
+H, W = 64, 64
+print("[cnn.tokenization] grid is hardcoded 64x64 -- tune this")
 
 
 def to_grid(source: str) -> np.ndarray:

@@ -1,7 +1,7 @@
 """
-Training for the CNN program writer: REINFORCE with per-character credit
+Training harness (model-agnostic): REINFORCE with per-character credit
 assignment over a curriculum (train), and supervised teacher-forcing on known
-reference programs (sft).
+reference programs (sft). Both take the model instance to train.
 """
 
 import os
@@ -12,11 +12,10 @@ import torch
 import torch.nn as nn
 
 from bench.verify import num_leading
-from models.cnn.curriculum import STAGES, sample_target
-from models.cnn.model import CNN
-from models.cnn.rollout import rollout, train_rollout
-from models.cnn.stepper import Stepper
-from models.cnn.tokenization import (
+from models.common.curriculum import STAGES, sample_target
+from models.common.rollout import rollout, train_rollout
+from models.common.stepper import Stepper
+from models.common.tokenization import (
     PAD,
     H,
     W,
@@ -29,7 +28,7 @@ SIZE_PENALTY = 0.5 / (H * W)   # lambda; max total size penalty < 1 correct term
 VERIFY_MAX_STEPS = 5000        # tight interpreter budget for reward verify
 
 
-def train(steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
+def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
           solve_threshold=0.8, window=50, max_places=48,
           print_every=10, ckpt_every=500, ckpt_dir="checkpoints"):
     """
@@ -43,7 +42,6 @@ def train(steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     """
     torch.manual_seed(seed)
     rng = random.Random(seed)
-    model = CNN()
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
     frontier = 0
@@ -125,7 +123,7 @@ def train(steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     return model
 
 
-def sft(pairs, steps=400, lr=1e-3, seed=0, print_every=50,
+def sft(model, pairs, steps=400, lr=1e-3, seed=0, print_every=50,
         ckpt_dir="checkpoints_sft"):
     """
     Supervised fit on (target_sequence, program_source) pairs. Teacher-force
@@ -136,7 +134,6 @@ def sft(pairs, steps=400, lr=1e-3, seed=0, print_every=50,
     the g/p Fibonacci) whose path runs over no-op spaces that must be placed.
     """
     torch.manual_seed(seed)
-    model = CNN()
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     cross_entropy = nn.CrossEntropyLoss()
     refs = [(target, to_grid(src)) for target, src in pairs]

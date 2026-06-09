@@ -11,7 +11,7 @@ the model and the interpreter.
 import numpy as np
 
 import befunge as bf
-from models.cnn.tokenization import OP_FROM_ID, OP_TO_ID
+from models.common.tokenization import OP_FROM_ID, OP_TO_ID
 
 # (dx, dy) -> heading index, matching the model's {0:^, 1:>, 2:v, 3:<}
 _HEADING = {(0, -1): 0, (1, 0): 1, (0, 1): 2, (-1, 0): 3}

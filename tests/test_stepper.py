@@ -8,8 +8,8 @@ so this checks the plumbing, not the semantics).
 from pathlib import Path
 
 import befunge as bf
-from models.cnn.stepper import Stepper
-from models.cnn.tokenization import to_grid
+from models.common.stepper import Stepper
+from models.common.tokenization import to_grid
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 

@@ -2,7 +2,7 @@
 Roundtrip tests for the program-grid and observation tokenization.
 """
 
-from models.cnn.tokenization import (
+from models.common.tokenization import (
     from_grid,
     obs_from_tokens,
     obs_to_tokens,

@@ -1,5 +1,5 @@
 """
-Autoregressive rollout: drive the Stepper with the CNN to generate a befunge
+Autoregressive rollout: drive the Stepper with a model to generate a befunge
 program for a target sequence, choosing each op in execution order. rollout is
 for inference (sampling, no grad); train_rollout is the differentiable version
 used by training.
@@ -8,9 +8,10 @@ used by training.
 import numpy as np
 import torch
 
-from models.cnn.model import DONE, N_ACTIONS
-from models.cnn.stepper import Stepper
-from models.cnn.tokenization import (
+from models.common.stepper import Stepper
+from models.common.tokenization import (
+    DONE,
+    N_ACTIONS,
     OP_FROM_ID,
     OP_TO_ID,
     PAD,

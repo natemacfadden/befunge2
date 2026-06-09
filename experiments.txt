@@ -95,3 +95,37 @@ explore/build the world as it goes)
 ===============================================================================
 Transformer
 ===============================================================================
+Motivated by the failures of the CNN, we study the transformer
+
+The geometric picture of the CNN was nice so I tried to keep that. It provides
+good symmetry respect and inductive bias. I previously did a rasterizing
+transformer (row-by-row; not appearing in this work) but that failed.
+
+Change playground so we/the IP are always moving to the right, with the
+playground translating  so we are at cell (0,0) and rotating so (1,0) is
+forward.
+
+To make this work, we
+    1) keep the grid square, so every rotation looks the same
+    2) translate/rotate the world around us
+    3) attending relative to the current cell (xi-xj)%64, (yi-yj)%64 (nice with
+       the torus)
+
+The attention is important. The CNN seemed to fail by not being able to
+distinguish similar characters. This global attention better represents the
+program which isn't guaranteed to be local.
+
+
+Experiments
+--------------------------------------------------------------------------------
+
+1) see if it can memorize fibonnaci (CNN couldn't)
+
+-> yes! easy :) attention win
+
+---
+
+2) train SFT on random programs (worlds) and their outputs (observations).
+   disable ? " & ~ , @ to encourage determinism and looping
+
+-> 
