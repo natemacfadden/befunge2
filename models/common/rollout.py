@@ -22,8 +22,9 @@ from models.common.tokenization import (
 )
 
 # ops we never place: ? (nondeterministic, breaks verification), " (string
-# mode), & ~ (stdin, no-ops here)
-BANNED_OPS = [OP_TO_ID[c] for c in '?"&~']
+# mode), & ~ (stdin, no-ops here), , (char output; we want integers), @ (halt;
+# targets are loopers). Matches the random-worlds generation op set.
+BANNED_OPS = [OP_TO_ID[c] for c in '?"&~,@']
 BANNED_MASK = torch.zeros(N_ACTIONS, dtype=torch.bool)
 BANNED_MASK[BANNED_OPS] = True
 

@@ -123,30 +123,35 @@ def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     return model
 
 
-def sft(model, pairs, steps=400, lr=1e-3, seed=0, print_every=50,
-        ckpt_dir="checkpoints_sft"):
+def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, max_places=256,
+        print_every=50, ckpt_every=200, ckpt_dir="checkpoints_sft"):
     """
-    Supervised fit on (target_sequence, program_source) pairs. Teacher-force
-    each reference program through the stepper: at every cell the IP lands on,
-    train
-    the op choice toward the reference character (cross-entropy) and place it,
-    stopping once the IP loops in filled cells. Handles looping programs (e.g.
-    the g/p Fibonacci) whose path runs over no-op spaces that must be placed.
+    Supervised fit on (target_sequence, program_source) pairs. Each step samples
+    a minibatch of `batch` pairs and teacher-forces each reference program
+    through the stepper: at every cell the IP lands on, train the op choice
+    toward the reference character (cross-entropy) and place it, stopping once
+    the IP loops in filled cells. Handles looping programs (e.g. the g/p
+    Fibonacci) whose path runs over no-op spaces that must be placed.
     """
     torch.manual_seed(seed)
+    rng = random.Random(seed)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     cross_entropy = nn.CrossEntropyLoss()
     refs = [(target, to_grid(src)) for target, src in pairs]
 
     for step in range(steps):
-        example_losses = []
-        for target, ref in refs:
+        minibatch = rng.sample(refs, min(batch, len(refs)))
+        opt.zero_grad()
+        running = 0.0
+        # gradient accumulation: one program's graph at a time, so peak memory
+        # is a single rollout regardless of batch (see docstring)
+        for target, ref in minibatch:
             tokens = torch.tensor(obs_to_tokens([target]))
             pad_mask = tokens != PAD
             mem = model.encode_observations(tokens)
             s = Stepper((H, W))
             losses = []
-            while len(losses) < H * W:
+            while len(losses) < max_places:
                 if s.run(2000) != "newcell":
                     break
                 vocab_grid, filled, (x, y), heading = s.worldstate()
@@ -157,21 +162,24 @@ def sft(model, pairs, steps=400, lr=1e-3, seed=0, print_every=50,
                 ref_op = int(ref[y, x])
                 losses.append(cross_entropy(logits, torch.tensor([ref_op])))
                 s.place(ref_op)
-            example_losses.append(torch.stack(losses).sum())
-
-        loss = torch.stack(example_losses).mean()
-        opt.zero_grad()
-        loss.backward()
+            prog_loss = torch.stack(losses).sum() / len(minibatch)
+            prog_loss.backward()        # accumulate grad, then free this graph
+            running += prog_loss.item()
         opt.step()
         if step % print_every == 0:
-            print(f"step {step:4d} CE_loss {loss.item():.4f}")
+            print(f"step {step:4d} CE_loss {running:.4f}")
+        if step > 0 and step % ckpt_every == 0:
+            os.makedirs(ckpt_dir, exist_ok=True)
+            torch.save(model.state_dict(),
+                       os.path.join(ckpt_dir, f"sft_step{step}.pt"))
+            print(f"saved checkpoint at step {step}")
 
     os.makedirs(ckpt_dir, exist_ok=True)
     path = os.path.join(ckpt_dir, "cnn_sft.pt")
     torch.save(model.state_dict(), path)
     print(f"saved {path}")
 
-    for target, _ in refs:
+    for target, _ in refs[:20]:
         s, status, _trace = rollout(model, target, seed=0)
         n = num_leading(from_grid(s.worldstate()[0]), "befunge", target,
                         max_steps=VERIFY_MAX_STEPS)

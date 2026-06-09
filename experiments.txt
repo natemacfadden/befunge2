@@ -128,4 +128,11 @@ Experiments
 2) train SFT on random programs (worlds) and their outputs (observations).
    disable ? " & ~ , @ to encourage determinism and looping
 
--> 
+-> crashed my computer... maybe because of this LOL
+-> restarted. Loss went down but couldn't recreate programs... maybe bad data?
+   (shit in, shit out)
+
+---
+
+3) try btter training data... SFT on random worlds that print many outputs
+   compared to their program length. Also dedup prioritizing short program sizes
