@@ -200,4 +200,13 @@ see checkpoints/transformer_5_rlwarm.pt
    pretty boring tbh... also the reward on the [2,6,18] was ~2, which is scary
    since the program was fairly off...
 
--> 
+   add more programs (first we did 5600 programs of which 5000 are random, 60
+   are geometric, and we upweight the 60 geometric by duplicating each 10x
+   times; then we do 6800 changing the duplication to 30x) and train for longer
+   (first we did 400 steps, now we do 1500 steps here)
+
+Warm started from transformer_3
+
+(all of the following is best-of-8)
+-> 12/12 sampled trained geometric series were hit perfectly!
+-> 5/12 held-out sequences (a0, r) were hit perfectly!
