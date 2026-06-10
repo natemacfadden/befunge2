@@ -17,6 +17,11 @@ from models.common.tokenization import OP_FROM_ID, OP_TO_ID
 _HEADING = {(0, -1): 0, (1, 0): 1, (0, 1): 2, (-1, 0): 3}
 _BLANK = ord(" ")   # unfilled cells read as space (a no-op for the interpreter)
 
+# ascii byte -> vocab id, so worldstate converts the grid in one numpy lookup
+_BYTE_TO_ID = np.zeros(256, dtype=np.int64)
+for _ch, _id in OP_TO_ID.items():
+    _BYTE_TO_ID[ord(_ch)] = _id
+
 
 class Stepper:
     """
@@ -104,9 +109,6 @@ class Stepper:
         is the (H, W) grid as vocab ids, ip is (x, y), and heading is the IP's
         direction as {0:^, 1:>, 2:v, 3:<}.
         """
-        vocab_grid = np.array(
-            [[OP_TO_ID[chr(int(b))] for b in row] for row in self.grid],
-            dtype=np.int64,
-        )
+        vocab_grid = _BYTE_TO_ID[self.grid]
         heading = _HEADING[(int(self.state[bf.S_DX]), int(self.state[bf.S_DY]))]
         return vocab_grid, self.filled.copy(), (self.x, self.y), heading
