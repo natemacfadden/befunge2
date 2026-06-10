@@ -123,7 +123,7 @@ def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     return model
 
 
-def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, max_places=256,
+def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, max_places=64,
         print_every=50, ckpt_every=200, ckpt_dir="checkpoints_sft"):
     """
     Supervised fit on (target_sequence, program_source) pairs. Each step samples
@@ -186,3 +186,33 @@ def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, max_places=256,
         print(f"  target {target}: out={s.output[:24]!r} "
               f"N={n}/{len(target)} status={status}")
     return model
+
+
+@torch.no_grad()
+def eval_reconstruction(model, pairs, k=32, max_places=64):
+    """
+    Best-of-k reproduction: for each (output, _) pair, sample k rollouts and
+    keep the best leading-term count. Best-of-1 punishes a single bad sample
+    in a long program; best-of-k measures whether the policy puts mass near a
+    valid program, which is what matters for verifier reranking and as an RL
+    start. Prints and returns (full, ge1, avg_leading) for the best-of-k.
+    """
+    model.eval()
+    full = ge1 = total = 0
+    for target, _src in pairs:
+        n_best = 0
+        for sample in range(k):
+            s, _status, _trace = rollout(model, target, seed=sample,
+                                         max_places=max_places)
+            n = num_leading(from_grid(s.worldstate()[0]), "befunge", target,
+                            max_steps=VERIFY_MAX_STEPS)
+            n_best = max(n_best, n)
+            if n_best == len(target):
+                break
+        full += n_best == len(target)
+        ge1 += n_best >= 1
+        total += n_best
+    m = len(pairs)
+    print(f"best-of-{k}: full {full}/{m} | >=1 term {ge1}/{m} | "
+          f"avg leading {total / m:.2f}")
+    return full, ge1, total / m

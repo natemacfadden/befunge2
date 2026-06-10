@@ -128,11 +128,50 @@ Experiments
 2) train SFT on random programs (worlds) and their outputs (observations).
    disable ? " & ~ , @ to encourage determinism and looping
 
--> crashed my computer... maybe because of this LOL
+-> crashed my computer... idk why
 -> restarted. Loss went down but couldn't recreate programs... maybe bad data?
    (shit in, shit out)
 
 ---
 
-3) try btter training data... SFT on random worlds that print many outputs
-   compared to their program length. Also dedup prioritizing short program sizes
+3) try better training data:
+   - start with random 64x64 grids with uniform prob (not ?"&~,@) of any
+   character (but high weighting of empty cell)
+   - keep only programs that print >=4 integers (|each| <= 1e9) and who uses
+   at most 6*|output| executed characters
+   - keep shortest path program seen
+(we collected some programs with distinct outputs and then used that pool)
+
+I.e., SFT on random worlds that print many outputs compared to their program
+length. Also dedup prioritizing short program sizes
+
+-> trained for 1500 steps (minibatch of 32)
+-> kinda worked. On a BIASED SET OF DATA THAT OVERLAPS TRAINING, we see the
+   following (full/50 is the  number of targets that were solvable by trying up
+   to 32 times. avg leading/8 is the average number of correct leading terms)
+step  full/50  avg leading/8
+   100     5       2.74
+   200     6       2.92
+   300     4       2.86
+   400    14       3.94
+   500    17       4.28
+   600    16       4.18
+   700    20       4.66
+   800    19       4.76
+   900    25       5.26
+  1000    27       5.68
+  1100    27       5.70
+  1200    28       5.70
+  1300    32       6.14
+  1400    31       6.14
+  1500    36       6.52
+-> but that data is biased. On a corrected, clean data set (no overlap), I see
+   full for full/50=2 and avg leading = 2.68/8 (but 45/50 had >=1 term)
+
+see checkpoints/transformer_3.pt. Also the programs/transformer/*.pt
+
+---
+
+4) train on a stream of observations/outputs, not an inital collection
+
+-> (pending)

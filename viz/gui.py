@@ -143,7 +143,7 @@ class BefungeGrid(tk.Frame):
     IP_COLOR       = 'gold'
     CURSOR_OUTLINE = 'dodgerblue'
 
-    def __init__(self, parent, cols=bf.W, rows=bf.H, cell_w=9, cell_h=14,
+    def __init__(self, parent, cols=bf.W, rows=bf.H, cell_w=9, cell_h=10,
                  font=None, editable=False, on_change=None):
         """
         Builds a fixed WxH grid of cells on a Canvas.
@@ -179,7 +179,11 @@ class BefungeGrid(tk.Frame):
         self.cell_h    = cell_h
         self.editable  = editable
         self.on_change = on_change
-        self.font      = font or tkfont.nametofont("TkFixedFont")
+        if font is None:
+            # size the glyphs to the cell so short cells don't clip
+            font = tkfont.nametofont("TkFixedFont").copy()
+            font.configure(size=-(cell_h - 3))   # negative = pixels
+        self.font = font
 
         cw = cols * cell_w + 1
         ch = rows * cell_h + 1
