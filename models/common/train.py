@@ -124,6 +124,49 @@ def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     return model
 
 
+def _sft_update(model, opt, minibatch, chunk, max_places):
+    """
+    One optimizer step of lockstep teacher-forcing over minibatch, a list of
+    (target_sequence, reference_grid) pairs (see sft). Returns the summed
+    cross-entropy for logging.
+    """
+    cross_entropy_sum = nn.CrossEntropyLoss(reduction="sum")
+    opt.zero_grad()
+    running = 0.0
+    for c0 in range(0, len(minibatch), chunk):
+        part = minibatch[c0:c0 + chunk]
+        tokens = torch.tensor(obs_to_tokens([t for t, _ in part]))
+        pad_mask = tokens != PAD
+        mem = model.encode_observations(tokens)
+        steppers = [Stepper((H, W)) for _ in part]
+        active = list(range(len(part)))
+        round_losses = []
+        for _ in range(max_places):
+            active = [i for i in active
+                      if steppers[i].run(2000) == "newcell"]
+            if not active:
+                break
+            states = [steppers[i].worldstate() for i in active]
+            grids = torch.from_numpy(np.stack([s[0] for s in states]))
+            fills = torch.from_numpy(np.stack([s[1] for s in states]))
+            ips = torch.tensor([s[2] for s in states])
+            heads = torch.tensor([s[3] for s in states])
+            toks, pos = model.encode_worldstate_batch(grids, fills, ips, heads)
+            idx = torch.tensor(active)
+            logits = model.forward_batch(toks, pos, mem[idx], pad_mask[idx])
+            ref_ops = [int(part[i][1][s[2][1], s[2][0]])
+                       for i, s in zip(active, states)]
+            round_losses.append(
+                cross_entropy_sum(logits, torch.tensor(ref_ops)))
+            for i, op in zip(active, ref_ops):
+                steppers[i].place(op)
+        chunk_loss = torch.stack(round_losses).sum() / len(minibatch)
+        chunk_loss.backward()           # one graph per chunk, then freed
+        running += chunk_loss.item()
+    opt.step()
+    return running
+
+
 def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, chunk=32,
         max_places=64, print_every=50, ckpt_every=200,
         ckpt_dir="checkpoints_sft"):
@@ -144,46 +187,11 @@ def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, chunk=32,
     torch.manual_seed(seed)
     rng = random.Random(seed)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-    cross_entropy_sum = nn.CrossEntropyLoss(reduction="sum")
     refs = [(target, to_grid(src)) for target, src in pairs]
 
     for step in range(steps):
         minibatch = rng.sample(refs, min(batch, len(refs)))
-        opt.zero_grad()
-        running = 0.0
-        for c0 in range(0, len(minibatch), chunk):
-            part = minibatch[c0:c0 + chunk]
-            tokens = torch.tensor(obs_to_tokens([t for t, _ in part]))
-            pad_mask = tokens != PAD
-            mem = model.encode_observations(tokens)
-            steppers = [Stepper((H, W)) for _ in part]
-            active = list(range(len(part)))
-            round_losses = []
-            for _ in range(max_places):
-                active = [i for i in active
-                          if steppers[i].run(2000) == "newcell"]
-                if not active:
-                    break
-                states = [steppers[i].worldstate() for i in active]
-                grids = torch.from_numpy(np.stack([s[0] for s in states]))
-                fills = torch.from_numpy(np.stack([s[1] for s in states]))
-                ips = torch.tensor([s[2] for s in states])
-                heads = torch.tensor([s[3] for s in states])
-                toks, pos = model.encode_worldstate_batch(
-                    grids, fills, ips, heads)
-                idx = torch.tensor(active)
-                logits = model.forward_batch(toks, pos, mem[idx],
-                                             pad_mask[idx])
-                ref_ops = [int(part[i][1][s[2][1], s[2][0]])
-                           for i, s in zip(active, states)]
-                round_losses.append(
-                    cross_entropy_sum(logits, torch.tensor(ref_ops)))
-                for i, op in zip(active, ref_ops):
-                    steppers[i].place(op)
-            chunk_loss = torch.stack(round_losses).sum() / len(minibatch)
-            chunk_loss.backward()       # one graph per chunk, then freed
-            running += chunk_loss.item()
-        opt.step()
+        running = _sft_update(model, opt, minibatch, chunk, max_places)
         if step % print_every == 0:
             print(f"step {step:4d} CE_loss {running:.4f}")
         if step > 0 and step % ckpt_every == 0:
@@ -203,6 +211,82 @@ def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, chunk=32,
                         max_steps=VERIFY_MAX_STEPS)
         print(f"  target {target}: out={s.output[:24]!r} "
               f"N={n}/{len(target)} status={status}")
+    return model
+
+
+def _world_producer(out_queue, seed):
+    """
+    Worker loop: generate small batches of fresh random worlds forever and
+    push them onto the queue (see sft_stream).
+    """
+    from models.common.random_worlds import random_worlds
+    n = 0
+    while True:
+        out_queue.put(random_worlds(16, seed=seed + n))
+        n += 1
+
+
+def sft_stream(model, steps=3000, lr=1e-3, seed=0, batch=32, chunk=32,
+               max_places=64, producers=4, buffer_cap=2000, eval_pairs=None,
+               eval_every=100, eval_k=8, print_every=10, ckpt_every=500,
+               ckpt_dir="checkpoints_stream"):
+    """
+    Streaming sft: producer processes generate fresh random worlds continuously
+    and the trainer samples each minibatch from a rolling buffer of the newest
+    ones, so there is no fixed dataset to memorize. Training itself is the same
+    lockstep update as sft. Every eval_every steps, runs a quick best-of-eval_k
+    reconstruction check on eval_pairs (only their outputs are used).
+    """
+    import multiprocessing as mp
+    import queue as queue_mod
+
+    torch.manual_seed(seed)
+    rng = random.Random(seed)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+
+    work_queue = mp.Queue(maxsize=64)
+    workers = [
+        mp.Process(target=_world_producer,
+                   args=(work_queue, seed + 1_000_003 * (i + 1)), daemon=True)
+        for i in range(producers)
+    ]
+    for w in workers:
+        w.start()
+
+    buffer = deque(maxlen=buffer_cap)
+    fresh = 0
+    try:
+        while len(buffer) < batch:
+            buffer.extend(work_queue.get())
+        for step in range(steps):
+            # drain whatever the producers have ready, without blocking
+            while True:
+                try:
+                    buffer.extend(work_queue.get_nowait())
+                    fresh += 16
+                except queue_mod.Empty:
+                    break
+            minibatch = [(t, to_grid(src))
+                         for t, src in rng.sample(list(buffer), batch)]
+            running = _sft_update(model, opt, minibatch, chunk, max_places)
+            if step % print_every == 0:
+                print(f"step {step:5d} CE_loss {running:8.4f} "
+                      f"buffer {len(buffer)} fresh {fresh}")
+            if eval_pairs is not None and step % eval_every == 0:
+                eval_reconstruction(model, eval_pairs, k=eval_k,
+                                    max_places=max_places)
+            if step > 0 and step % ckpt_every == 0:
+                os.makedirs(ckpt_dir, exist_ok=True)
+                torch.save(model.state_dict(),
+                           os.path.join(ckpt_dir, f"stream_step{step}.pt"))
+    finally:
+        for w in workers:
+            w.terminate()
+
+    os.makedirs(ckpt_dir, exist_ok=True)
+    path = os.path.join(ckpt_dir, "stream_final.pt")
+    torch.save(model.state_dict(), path)
+    print(f"saved {path}")
     return model
 
 

@@ -135,8 +135,7 @@ Experiments
 ---
 
 3) try better training data:
-   - start with random 64x64 grids with uniform prob (not ?"&~,@) of any
-   character (but high weighting of empty cell)
+   - start with random 64x64 grids w/ high weighting of empty cell
    - keep only programs that print >=4 integers (|each| <= 1e9) and who uses
    at most 6*|output| executed characters
    - keep shortest path program seen
@@ -174,4 +173,16 @@ see checkpoints/transformer_3.pt. Also the programs/transformer/*.pt
 
 4) train on a stream of observations/outputs, not an inital collection
 
--> (pending)
+-> similar performance to the above (but no memorization)
+-> after 3k steks (~70k worlds), the model got 1/50 seq->world fully correct
+   (it had 32 tried) and would, on avergae, get ~2.3 leading terms right
+
+(kinda didn't work)
+
+---
+
+5) RL with loss function (#leading, -program size), combined to a single number
+   via N-lmbda*S for N=#leading, S=program size, and lmbda=0.5*width*height.
+   Ensures higher N always wins.
+
+-> 
