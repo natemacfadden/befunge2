@@ -8,6 +8,7 @@ import os
 import random
 from collections import deque
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -123,48 +124,65 @@ def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     return model
 
 
-def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, max_places=64,
-        print_every=50, ckpt_every=200, ckpt_dir="checkpoints_sft"):
+def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, chunk=32,
+        max_places=64, print_every=50, ckpt_every=200,
+        ckpt_dir="checkpoints_sft"):
     """
     Supervised fit on (target_sequence, program_source) pairs. Each step samples
-    a minibatch of `batch` pairs and teacher-forces each reference program
-    through the stepper: at every cell the IP lands on, train the op choice
-    toward the reference character (cross-entropy) and place it, stopping once
-    the IP loops in filled cells. Handles looping programs (e.g. the g/p
-    Fibonacci) whose path runs over no-op spaces that must be placed.
+    a minibatch of `batch` pairs and teacher-forces the reference programs in
+    lockstep: every round, each still-active program's stepper advances to its
+    next blank cell, all their worldstates run through one batched forward, the
+    op choice is trained toward the reference character (cross-entropy), and
+    the reference op is placed. A program leaves the round-loop when its IP
+    loops in filled cells. Lockstep keeps token counts identical across active
+    programs (round t = t placements + the IP token), so no padding is needed.
+
+    The minibatch is processed in chunks of `chunk` programs, with one backward
+    per chunk, bounding peak autograd memory. Requires a model with the batched
+    interface (encode_worldstate_batch / forward_batch), i.e. the Transformer.
     """
     torch.manual_seed(seed)
     rng = random.Random(seed)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
-    cross_entropy = nn.CrossEntropyLoss()
+    cross_entropy_sum = nn.CrossEntropyLoss(reduction="sum")
     refs = [(target, to_grid(src)) for target, src in pairs]
 
     for step in range(steps):
         minibatch = rng.sample(refs, min(batch, len(refs)))
         opt.zero_grad()
         running = 0.0
-        # gradient accumulation: one program's graph at a time, so peak memory
-        # is a single rollout regardless of batch (see docstring)
-        for target, ref in minibatch:
-            tokens = torch.tensor(obs_to_tokens([target]))
+        for c0 in range(0, len(minibatch), chunk):
+            part = minibatch[c0:c0 + chunk]
+            tokens = torch.tensor(obs_to_tokens([t for t, _ in part]))
             pad_mask = tokens != PAD
             mem = model.encode_observations(tokens)
-            s = Stepper((H, W))
-            losses = []
-            while len(losses) < max_places:
-                if s.run(2000) != "newcell":
+            steppers = [Stepper((H, W)) for _ in part]
+            active = list(range(len(part)))
+            round_losses = []
+            for _ in range(max_places):
+                active = [i for i in active
+                          if steppers[i].run(2000) == "newcell"]
+                if not active:
                     break
-                vocab_grid, filled, (x, y), heading = s.worldstate()
-                ws = model.encode_worldstate(
-                    torch.tensor(vocab_grid)[None], torch.tensor(filled)[None],
-                    torch.tensor([[x, y]]), torch.tensor([heading]))
-                logits = model(ws, mem, pad_mask, torch.tensor([[x, y]]))
-                ref_op = int(ref[y, x])
-                losses.append(cross_entropy(logits, torch.tensor([ref_op])))
-                s.place(ref_op)
-            prog_loss = torch.stack(losses).sum() / len(minibatch)
-            prog_loss.backward()        # accumulate grad, then free this graph
-            running += prog_loss.item()
+                states = [steppers[i].worldstate() for i in active]
+                grids = torch.from_numpy(np.stack([s[0] for s in states]))
+                fills = torch.from_numpy(np.stack([s[1] for s in states]))
+                ips = torch.tensor([s[2] for s in states])
+                heads = torch.tensor([s[3] for s in states])
+                toks, pos = model.encode_worldstate_batch(
+                    grids, fills, ips, heads)
+                idx = torch.tensor(active)
+                logits = model.forward_batch(toks, pos, mem[idx],
+                                             pad_mask[idx])
+                ref_ops = [int(part[i][1][s[2][1], s[2][0]])
+                           for i, s in zip(active, states)]
+                round_losses.append(
+                    cross_entropy_sum(logits, torch.tensor(ref_ops)))
+                for i, op in zip(active, ref_ops):
+                    steppers[i].place(op)
+            chunk_loss = torch.stack(round_losses).sum() / len(minibatch)
+            chunk_loss.backward()       # one graph per chunk, then freed
+            running += chunk_loss.item()
         opt.step()
         if step % print_every == 0:
             print(f"step {step:4d} CE_loss {running:.4f}")

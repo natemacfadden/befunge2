@@ -17,7 +17,7 @@ from models.common.tokenization import (
     PAD,
     H,
 )
-from models.transformer.frame import canonical_offsets
+from models.transformer.frame import canonical_offsets, canonical_offsets_batch
 
 MODEL_DIM = 64           # token / attention width (D)
 NUM_HEADS = 4
@@ -43,15 +43,16 @@ class RelBiasSelfAttention(nn.Module):
         self.bias = nn.Parameter(torch.zeros(heads, size, size))
 
     def forward(self, x, pos):
-        # x: (n, dim) tokens; pos: (n, 2) canonical positions in [0, size)
-        n = x.shape[0]
-        qkv = self.qkv(x).reshape(n, 3, self.heads, self.head_dim)
-        q, k, v = qkv.permute(1, 2, 0, 3)            # each (heads, n, head_dim)
+        # x: (B, n, dim) tokens; pos: (B, n, 2) canonical positions
+        B, n, _ = x.shape
+        qkv = self.qkv(x).reshape(B, n, 3, self.heads, self.head_dim)
+        q, k, v = qkv.permute(2, 0, 3, 1, 4)      # each (B, heads, n, head_dim)
         scores = (q @ k.transpose(-1, -2)) / self.head_dim ** 0.5
-        rel = (pos[:, None, :] - pos[None, :, :]) % self.size   # (n, n, 2)
-        scores = scores + self.bias[:, rel[..., 0], rel[..., 1]]
-        out = scores.softmax(-1) @ v                 # (heads, n, head_dim)
-        out = out.permute(1, 0, 2).reshape(n, self.heads * self.head_dim)
+        rel = (pos[:, :, None, :] - pos[:, None, :, :]) % self.size
+        bias = self.bias[:, rel[..., 0], rel[..., 1]]      # (heads, B, n, n)
+        scores = scores + bias.permute(1, 0, 2, 3)
+        out = scores.softmax(-1) @ v              # (B, heads, n, head_dim)
+        out = out.transpose(1, 2).reshape(B, n, self.heads * self.head_dim)
         return self.out(out)
 
 
@@ -69,15 +70,16 @@ class TokenCrossAttention(nn.Module):
         self.out = nn.Linear(dim, dim)
 
     def forward(self, x, mem, pad_mask):
-        # x: (n, dim) queries; mem: (L, dim) memory; pad_mask: (L,) bool
-        n, length = x.shape[0], mem.shape[0]
-        q = self.q(x).reshape(n, self.heads, self.head_dim).transpose(0, 1)
-        kv = self.kv(mem).reshape(length, 2, self.heads, self.head_dim)
-        k, v = kv.permute(1, 2, 0, 3)                # each (heads, L, head_dim)
+        # x: (B, n, dim) queries; mem: (B, L, dim); pad_mask: (B, L) bool
+        B, n, _ = x.shape
+        length = mem.shape[1]
+        q = self.q(x).reshape(B, n, self.heads, self.head_dim).transpose(1, 2)
+        kv = self.kv(mem).reshape(B, length, 2, self.heads, self.head_dim)
+        k, v = kv.permute(2, 0, 3, 1, 4)          # each (B, heads, L, head_dim)
         scores = (q @ k.transpose(-1, -2)) / self.head_dim ** 0.5
-        scores = scores.masked_fill(~pad_mask[None, None, :], float("-inf"))
+        scores = scores.masked_fill(~pad_mask[:, None, None, :], float("-inf"))
         out = scores.softmax(-1) @ v
-        out = out.transpose(0, 1).reshape(n, self.heads * self.head_dim)
+        out = out.transpose(1, 2).reshape(B, n, self.heads * self.head_dim)
         return self.out(out)
 
 
@@ -154,7 +156,39 @@ class Transformer(nn.Module):
         Run the grid layers and read out the IP token. Returns (1, N_ACTIONS).
         """
         tokens, pos, ip_index = worldstate
-        mem, mask = observation_features[0], pad_mask[0]
+        logits = self.forward_batch(tokens[None], pos[None],
+                                    observation_features, pad_mask)
+        return logits   # ip token is last, which forward_batch reads out
+
+    def encode_worldstate_batch(self, grids, filled, ips, headings):
+        """
+        Batched encode_worldstate for lockstep teacher-forcing: every program
+        in the batch must have the same number of filled cells (true in
+        lockstep, where each round places exactly one op per active program).
+
+        grids (B, H, W) vocab ids, filled (B, H, W) bool, ips (B, 2) long,
+        headings (B,) long. Returns (tokens (B, k+1, D), pos (B, k+1, 2)),
+        with each program's IP query token last.
+        """
+        B, _, Ww = grids.shape
+        flat = filled.reshape(B, -1)
+        k = int(flat[0].sum())
+        cells = flat.nonzero(as_tuple=False)[:, 1].view(B, k)
+        ys, xs = cells // Ww, cells % Ww
+        ops = grids.reshape(B, -1).gather(1, cells)        # (B, k)
+        tokens = self.op_embed(ops)                        # (B, k, D)
+        tokens = torch.cat(
+            [tokens, self.query_embed.expand(B, 1, -1)], dim=1)
+        coords = torch.stack([xs, ys], dim=-1)             # (B, k, 2)
+        coords = torch.cat([coords, ips[:, None, :]], dim=1)
+        pos = canonical_offsets_batch(coords, ips, headings, GRID_SIZE)
+        return tokens, pos
+
+    def forward_batch(self, tokens, pos, observation_features, pad_mask):
+        """
+        Batched forward: run the grid layers and read out each program's IP
+        token (the last token). Returns (B, N_ACTIONS).
+        """
         for layer in self.layers:
-            tokens = layer(tokens, pos, mem, mask)
-        return self.op_head(tokens[ip_index])[None]
+            tokens = layer(tokens, pos, observation_features, pad_mask)
+        return self.op_head(tokens[:, -1])

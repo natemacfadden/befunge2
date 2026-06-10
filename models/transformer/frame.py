@@ -35,3 +35,19 @@ def canonical_offsets(coords_xy, ip_xy, heading, size):
     else:                   # ^ up: rotate (0,-1) -> (1,0)
         ox, oy = -dy, dx
     return torch.stack([ox % size, oy % size], dim=1)
+
+
+def canonical_offsets_batch(coords_xy, ip_xy, heading, size):
+    """
+    Batched canonical_offsets: coords_xy (B, n, 2), ip_xy (B, 2), heading (B,)
+    int tensor. Returns (B, n, 2) offsets, each program rotated by its own
+    heading.
+    """
+    d = coords_xy - ip_xy[:, None, :]
+    dx, dy = d[..., 0], d[..., 1]
+    h = heading[:, None]
+    ox = torch.where(h == 1, dx, torch.where(h == 2, dy,
+                     torch.where(h == 3, -dx, -dy)))
+    oy = torch.where(h == 1, dy, torch.where(h == 2, -dx,
+                     torch.where(h == 3, -dy, dx)))
+    return torch.stack([ox % size, oy % size], dim=-1)
