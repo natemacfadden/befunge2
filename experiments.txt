@@ -167,7 +167,7 @@ step  full/50  avg leading/8
 -> but that data is biased. On a corrected, clean data set (no overlap), I see
    full for full/50=2 and avg leading = 2.68/8 (but 45/50 had >=1 term)
 
-see checkpoints/transformer_3.pt. Also the programs/transformer/*.pt
+see checkpoints/transformer_3.pt. Also the programs/transformer/*.bf
 
 ---
 
@@ -177,12 +177,27 @@ see checkpoints/transformer_3.pt. Also the programs/transformer/*.pt
 -> after 3k steks (~70k worlds), the model got 1/50 seq->world fully correct
    (it had 32 tried) and would, on avergae, get ~2.3 leading terms right
 
-(kinda didn't work)
+(kinda didn't work... but we removed memorization!)
 
 ---
 
 5) RL with loss function (#leading, -program size), combined to a single number
-   via N-lmbda*S for N=#leading, S=program size, and lmbda=0.5*width*height.
-   Ensures higher N always wins.
+   via N-lmbda*S for N=#leading, S=program size, and lmbda=0.5/(width*height).
+   Ensures higher N always wins. Warm start from transformer.3
+
+-> worked up to a solve rate of ~0.40 over 100 steps! Solves 23/23 constant
+   sequences but fails for harder sequences (e.g., geometric 0/37), Both of
+   these are best-of-8 tries on constant recursive seqeuences with order-1
+some failures
+   target [2,6,18]      -> model: 2 6 2 6 2 6 ...
+   target [4,12,36,108] -> model: 4 24 24 24 ...
+
+see checkpoints/transformer_5_rlwarm.pt
+
+---
+
+6) maybe the above model didn't have enough loop context? random programs are
+   pretty boring tbh... also the reward on the [2,6,18] was ~2, which is scary
+   since the program was fairly off...
 
 -> 
