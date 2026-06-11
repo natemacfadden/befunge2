@@ -30,8 +30,8 @@ VERIFY_MAX_STEPS = 5000        # tight interpreter budget for reward verify
 
 
 def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
-          solve_threshold=0.8, window=50, max_places=48,
-          print_every=10, ckpt_every=500, ckpt_dir="checkpoints"):
+          solve_threshold=0.8, window=50, max_places=48, verify_extra=0,
+          print_every=10, ckpt_every=500, ckpt_dir="scratch/rl"):
     """
     REINFORCE with per-character credit assignment and a curriculum. Each step:
     sample a target from the unlocked stages, roll out k attempts, score every
@@ -40,6 +40,10 @@ def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     per-step leave-one-out baseline across attempts. Unlock the next stage
     once a window of recent frontier targets is reliably solved; earlier stages
     stay in rotation as replay.
+
+    With verify_extra > 0, the target is rolled that many terms past what the
+    model is shown and scoring uses the full sequence, so printing the shown
+    terms literally cannot count as a solve (the continuation exposes it).
     """
     torch.manual_seed(seed)
     rng = random.Random(seed)
@@ -49,13 +53,14 @@ def train(model, steps=1000, k=8, lr=1e-3, seed=0, entropy_coef=0.0,
     recent = deque(maxlen=window)
     for step in range(steps):
         stage = rng.choice(STAGES[:frontier + 1])
-        target = sample_target(rng, stage)
+        target = sample_target(rng, stage, extra=verify_extra)
+        shown = target[:-verify_extra] if verify_extra else target
 
         # k attempts; for each, score every partial program and build the
         # per-step reward-to-go
         returns, logps_all, entropies, leading = [], [], [], []
         for _s, _status, logps, programs, placed, entropy in (
-                train_rollout(model, target, max_places=max_places)
+                train_rollout(model, shown, max_places=max_places)
                 for _ in range(k)):
             ns = [num_leading(p, "befunge", target, max_steps=VERIFY_MAX_STEPS)
                   for p in programs]
@@ -169,7 +174,7 @@ def _sft_update(model, opt, minibatch, chunk, max_places):
 
 def sft(model, pairs, steps=400, lr=1e-3, seed=0, batch=32, chunk=32,
         max_places=64, print_every=50, ckpt_every=200,
-        ckpt_dir="checkpoints_sft"):
+        ckpt_dir="scratch/sft"):
     """
     Supervised fit on (target_sequence, program_source) pairs. Each step samples
     a minibatch of `batch` pairs and teacher-forces the reference programs in
@@ -229,7 +234,7 @@ def _world_producer(out_queue, seed):
 def sft_stream(model, steps=3000, lr=1e-3, seed=0, batch=32, chunk=32,
                max_places=64, producers=4, buffer_cap=2000, eval_pairs=None,
                eval_every=100, eval_k=8, print_every=10, ckpt_every=500,
-               ckpt_dir="checkpoints_stream"):
+               ckpt_dir="scratch/stream"):
     """
     Streaming sft: producer processes generate fresh random worlds continuously
     and the trainer samples each minibatch from a rolling buffer of the newest

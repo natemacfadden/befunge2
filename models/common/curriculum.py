@@ -13,18 +13,19 @@ MAX_TERMS = 8        # longest target; reward checks this many leading outputs
 MAX_TERM = 10 ** 6   # reject targets that blow past this (keep them printable)
 
 
-def _recurrence(rng, order, coeff_lo, coeff_hi, ic_hi):
+def _recurrence(rng, order, coeff_lo, coeff_hi, ic_hi, extra=0):
     """
     Sample a constant-coefficient recurrence of the given order and roll it out
     to a random number of terms (from order+1 up to MAX_TERMS, so shorter,
-    easier targets appear too). Returns the sequence, or None if a term goes
-    negative or past MAX_TERM (the caller resamples). coeffs[0] multiplies the
-    most recent term, matching f_gp_recurrence in data/synth.
+    easier targets appear too) plus `extra` continuation terms. Returns the
+    sequence, or None if a term goes negative or past MAX_TERM (the caller
+    resamples). coeffs[0] multiplies the most recent term, matching
+    f_gp_recurrence in data/synth.
     """
     coeffs = [rng.randint(coeff_lo, coeff_hi) for _ in range(order)]
     if all(c == 0 for c in coeffs):
         coeffs[-1] = 1                 # avoid a degenerate all-zero recurrence
-    n_terms = rng.randint(max(MIN_TERMS, order + 1), MAX_TERMS)
+    n_terms = rng.randint(max(MIN_TERMS, order + 1), MAX_TERMS) + extra
     seq = [rng.randint(0, ic_hi) for _ in range(order)]
     while len(seq) < n_terms:
         nxt = sum(c * seq[-i - 1] for i, c in enumerate(coeffs))
@@ -44,13 +45,16 @@ _PARAMS = {
 }
 
 
-def sample_target(rng, stage):
+def sample_target(rng, stage, extra=0):
     """
     Sample one target sequence for the named stage, resampling until the rolled
-    recurrence stays in range.
+    recurrence stays in range. With extra > 0, the sequence is rolled extra
+    terms past the shown window: callers show the model seq[:-extra] but verify
+    against all of seq, so writing the shown terms out literally no longer
+    counts as solving (the continuation exposes it).
     """
     params = _PARAMS[stage]
     while True:
-        seq = _recurrence(rng, **params)
+        seq = _recurrence(rng, extra=extra, **params)
         if seq is not None:
             return seq

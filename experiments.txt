@@ -210,3 +210,52 @@ Warm started from transformer_3
 (all of the following is best-of-8)
 -> 12/12 sampled trained geometric series were hit perfectly!
 -> 5/12 held-out sequences (a0, r) were hit perfectly!
+
+see checkpoints/transformer_6_geom.pt
+
+---
+
+7) RL again (same as 5: N-lmbda*S, k=8, 2000 steps) but warm started from the
+   geometric SFT model (transformer_6)... can it climb the curriculum now? And
+   does the multiply-loop transfer to add-loops (arithmetic) for free?
+
+   (curriculum stages: order-d means constant-recursive sequences of order d,
+   i.e. s_n depends on the last d terms. order-1 = constants and geometrics;
+   order-2 adds arithmetic progressions and two-term recurrences like
+   fibonacci. Stage promotes when the rolling solve rate hits 0.8)
+
+-> first ever curriculum unlock! order-1 solve rate hit 0.74 and promoted to
+   order-2 at step ~775 (RL from transformer_3 plateaued at ~0.45)
+-> on order-2 it "solves" ~35%... but inspection shows the solves are
+   constants, periodic, and short targets where it just prints the shown
+   terms literally (e.g. [0,1,2,3] -> ". 1 . 2 . 3 ." program)
+-> arithmetic (the add-loop family, never trained): 0/10 best-of-8. RL did
+   not invent the idiom even though it is one character from the multiply-loop.
+   The full add-loop program (here a0=3, d=2):
+
+       3>:.2+v
+        ^    <
+
+   push 3 once, then loop dup/print/add-2 forever: the v drops to row 1, <
+   walks back, ^ rises into the >, which re-enters the loop body skipping the
+   init. The trained geometric family is identical with * for + (e.g. 3>:.2*v)
+
+see checkpoints/transformer_6_geom.pt (the SFT model this RL started from; the
+RL output itself was superseded by experiment 8)
+
+---
+
+8) fix the enumeration cheat: roll the target 4 terms past what the model is
+   shown and verify against the full sequence (we know the recurrence, so the
+   continuation is free). Literal printing now caps at the shown prefix.
+   Identical RL config to 7 otherwise (A/B)
+
+-> still unlocks order-2 (step ~825 vs 775), now provably without enumeration
+-> head-to-head probe of 7 vs 8 final models (same yardstick):
+   arithmetic: 0/10 both. gamed-short-targets: 1/8 for (7), 0/8 for (8)
+-> so the fix guards the metric but creates no new ability. RL selects among
+   idioms the SFT prior owns; it has never invented one
+-> side finding: neither model extrapolates geometric from only 4 shown terms
+   (both can from 8)... prompt-length generalization is its own gap
+
+see checkpoints/transformer_8_rlextra.pt; scripts/ has recreation scripts
